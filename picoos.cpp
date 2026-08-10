@@ -500,9 +500,13 @@ void update_7seg(uint8_t digl3, uint8_t digl2, uint8_t digl1, uint8_t dotl,
         ((uint64_t)segs_lut[digs1]       <<  8);
 
     /* Clock out 56 bits, MSB first.
-     * Data is inverted: HC595 output low = segment/LED on (active-low). */
+     * HC595s replaced 2026-08-10: counterfeit open-collector ICs swapped for
+     * genuine totem-pole parts, which no longer add their own inversion —
+     * so the bit is sent as-is now (was: !(...) to compensate for the
+     * counterfeits). This covers dotl/dots too, since they're packed into
+     * reg_seg above rather than going through segl_lut/segs_lut. */
     for (int i = 0; i < 56; i++) {
-        gpio_put(PIN_SEG_SER, !(reg_seg & 0x8000000000000000ULL));
+        gpio_put(PIN_SEG_SER, (reg_seg & 0x8000000000000000ULL) != 0);
         reg_seg <<= 1;
         gpio_put(PIN_SEG_SCK, 1);
         gpio_put(PIN_SEG_SCK, 0);
