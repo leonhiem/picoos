@@ -26,3 +26,9 @@ void task_register(const char *name, task_fn_t fn, uint32_t period_ms);
 /* Call repeatedly from main()'s loop. Runs any task whose period has
  * elapsed since its last run, then returns — never blocks. */
 void task_run(void);
+
+/* Reset a named task's deadline, as if it had just run. Lets one task
+ * explicitly postpone another — e.g. suppressing a check right after a
+ * state transition it knows would otherwise trigger a false positive.
+ * Returns false if no task with that name is registered. */
+bool task_postpone(const char *name, uint32_t period_ms);

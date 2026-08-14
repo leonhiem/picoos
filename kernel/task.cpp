@@ -1,5 +1,6 @@
 #include "task.h"
 #include "pico/time.h"
+#include <cstring>
 
 #define TASK_MAX 8
 
@@ -32,4 +33,15 @@ void task_run(void)
             tasks[i].fn();
         }
     }
+}
+
+bool task_postpone(const char *name, uint32_t period_ms)
+{
+    for (int i = 0; i < task_count; i++) {
+        if (strcmp(tasks[i].name, name) == 0) {
+            tasks[i].next_run = make_timeout_time_ms(period_ms);
+            return true;
+        }
+    }
+    return false;
 }

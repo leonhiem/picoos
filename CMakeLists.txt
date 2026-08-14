@@ -50,7 +50,7 @@ pico_add_extra_outputs(klog_demo)
 
 target_include_directories(picoos PUBLIC)
 target_link_directories(picoos PUBLIC)
-target_link_libraries(picoos pico_stdlib hardware_spi hardware_i2c hardware_interp hardware_adc hardware_gpio hardware_pwm pico_one_wire pico-ads1115 m)
+target_link_libraries(picoos picoos_kernel pico_stdlib hardware_spi hardware_i2c hardware_interp hardware_adc hardware_gpio hardware_pwm pico_one_wire pico-ads1115 m)
 
 # enable usb output, disable uart output
 pico_enable_stdio_usb(picoos 1)

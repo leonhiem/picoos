@@ -34,6 +34,7 @@
 #include "pico/binary_info.h"
 #include "ads1115.h"
 #include "ntc_lut.h"
+#include "kernel/task.h"
 
 
 #define INTRO_LOGO "KSE Medical Warmer"
@@ -308,6 +309,15 @@ alarm_t alarm;
 wtempctl_t tempctl;
 wsafecheck_t safecheck;
 wheatercheck_t heatercheck;
+
+// Owned by task_sensor (periodic reads); initialised once in main() before
+// the scheduler starts, so it needs file scope rather than living in either
+// function alone.
+static struct ads1115_adc adc;
+
+// Owned by task_pidctrl (the only writer); read by task_sensor for its
+// telemetry line.
+static ControlState state = STATE_IDLE;
 
 // Debounce control
 uint32_t time_isr_enter;
@@ -787,131 +797,27 @@ void animation(void)
 }
 
 
-int main() 
+/* ═══════════════════════════════════════════════════
+   Task functions — registered with the cooperative
+   scheduler (kernel/task.h) in main(). Bodies moved
+   verbatim from the old hand-rolled while(1) loop;
+   indentation kept as-is (one level deeper than a
+   normal function body) to avoid any risk of an
+   automated re-indent altering this logic — cosmetic
+   cleanup can happen once this is verified on hardware.
+   ═══════════════════════════════════════════════════ */
+void task_minute(void)
 {
-    struct ads1115_adc adc;
-    uint32_t warmer_uptime=0;
-    int line_idx=0;
+    static uint32_t warmer_uptime = 0;
+
+    warmer_uptime++;
+    //printf("warmer uptime is %d minutes\n",warmer_uptime);
+}
+
+void task_sensor(void)
+{
+    static int line_idx = 0;
     int i;
-    bool first = true;
-    absolute_time_t minute_interval_time;
-    absolute_time_t sensor_interval_time;
-    absolute_time_t check_interval_time;
-    absolute_time_t pidctrl_interval_time;
-    absolute_time_t animation_interval_time;
-    absolute_time_t tpo_interval_time;
-
-    memset((void *)button,0,BUTTON_COUNT);
-    memset((void *)button_pressed,0,sizeof(button_pressed));
-    memset((void *)button_cnt,0,sizeof(button_cnt));
-    memset((void *)&tempctl,0,sizeof(wtempctl_t));
-    memset((void *)&safecheck,0,sizeof(wsafecheck_t));
-    memset((void *)&heatercheck,0,sizeof(wheatercheck_t));
-    //any_button_pressed_delay=0;
-    
-    ControlState state = STATE_IDLE;
-
-    // some move to EEPROM later !!!
-    babylight = 0;
-    heater_mode = HEATER_MODE_PID; 
-    timer_started = 0;
-    alarm.alarm = false;
-    alarm.muted = false;
-    alarm.muted_time = get_absolute_time(); // initially safe
-
-    tempctl.setpoint.temp = SETPOINT_TEMP_DEF;
-    tempctl.setpoint.percent = SETPOINT_PCT_DEF;
-
-    stdio_init_all();
-    setup_gpios();
-    init_seg7();
-
-
-    // Initialise ADC
-    ads1115_init(i2c0, ADS1115_I2C_ADDR, &adc);
-    ads1115_set_input_mux(ADS1115_MUX_DIFF_0_1, &adc);
-    //ads1115_set_pga(ADS1115_PGA_4_096, &adc); // +/- 4V
-    //ads1115_set_pga(ADS1115_PGA_2_048, &adc); // +/- 2V // default
-    ads1115_set_pga(ADS1115_PGA_1_024, &adc); // +/- 1V  TODO FIXME
-    ads1115_set_data_rate(ADS1115_RATE_128_SPS, &adc); // default
-    ads1115_write_config(&adc);
-
-    // Required bugfix in: ~/pico/pico-ads1115/lib/ads1115.cpp line 25:
-    //    while ((adc->config & ADS1115_STATUS_MASK) == ADS1115_STATUS_BUSY){
-    // ---> added the '(' and ')' !!
-    // otherwise both t_skin and t_ambient show the same value
-
-
-    // boot on delay
-    sleep_ms(2000);
-
-    if (watchdog_caused_reboot()) {
-        printf("Rebooted by watchdog\r\n");
-    } else {
-        printf("Clean boot\r\n");
-    }
-    printf("%s [%s] startup\r\n",INTRO_LOGO,SW_VERSION);
-
-    printf("PWM slice number %d\n",pwm_gpio_to_slice_num(PIN_SSR_BARGRPH));
-    printf("PWM channel number %d\n",pwm_gpio_to_channel(PIN_SSR_BARGRPH));
-
-    // interrupt service for apgar start timer
-    time_isr_enter = to_ms_since_boot(get_absolute_time());
-    gpio_set_irq_enabled_with_callback(button_pin[BUTTON_START], GPIO_IRQ_EDGE_FALL , true, &isr_enter);
-    struct repeating_timer timer;
-    add_repeating_timer_ms(-5, repeating_timer_callback, NULL, &timer);
-
-    watchdog_enable(0x7fffff, 1); // 8 seconds (is max)
-    minute_interval_time = make_timeout_time_ms(MINUTE_INTERVAL_TIME);
-    sensor_interval_time = make_timeout_time_ms(SENSOR_INTERVAL_TIME);
-    check_interval_time = make_timeout_time_ms(CHECK_INTERVAL_TIME);
-    pidctrl_interval_time = make_timeout_time_ms(PID_CTRL_INTERVAL_TIME);
-    animation_interval_time = make_timeout_time_ms(ANIMATION_INTERVAL_TIME);
-    tpo_interval_time = make_timeout_time_ms(TPO_INTERVAL_TIME);
-
-
-
-    /* ════════════════════════════════════════════
-       Main control loop
-       ════════════════════════════════════════════ */
-    while(1) {
-        if(absolute_time_diff_us(get_absolute_time(),animation_interval_time) < 0) {
-            animation_interval_time = make_timeout_time_ms(ANIMATION_INTERVAL_TIME);
-
-            animation();
-        }
-
-        watchdog_update();
-
-        if(absolute_time_diff_us(get_absolute_time(),minute_interval_time) < 0) {
-            minute_interval_time = make_timeout_time_ms(MINUTE_INTERVAL_TIME);
-
-            // Minute task
-
-            warmer_uptime++;
-            //printf("warmer uptime is %d minutes\n",warmer_uptime);
-        }
-
-        if(alarm.alarm) {
-            gpio_put(PIN_ALARM_LED, 0); // PIN_ALARM_LED is inverted in hardware
-
-            if(absolute_time_diff_us(get_absolute_time(),alarm.muted_time) < 0) {
-                alarm.muted =false;
-            }
-
-            if(alarm.muted) {
-                gpio_put(PIN_ALARM, 0);
-            } else {
-                gpio_put(PIN_ALARM, 1);
-            }
-        } else {
-            gpio_put(PIN_ALARM_LED, 1);
-            gpio_put(PIN_ALARM, 0);
-            alarm.muted=false;
-        }
-
-        if(absolute_time_diff_us(get_absolute_time(),sensor_interval_time) < 0) {
-            sensor_interval_time = make_timeout_time_ms(SENSOR_INTERVAL_TIME);
 
             // Read sensor task
 
@@ -992,32 +898,18 @@ int main()
                    tempctl.templow,tempctl.temphigh,heatercheck.curr_sense,
                    heatercheck.fail,safecheck.warn,
                    tempctl.pid.integral, tempctl.pid.prev_meas);
-        }
+}
 
-        // Periodically check the heater status
-        if(absolute_time_diff_us(get_absolute_time(),check_interval_time) < 0) {
-            check_interval_time = make_timeout_time_ms(CHECK_INTERVAL_TIME);
+void task_check(void)
+{
+    static bool first = true;
 
-            heater_check_task(first);
-            first = false;
-        }
+    heater_check_task(first);
+    first = false;
+}
 
-
-        // Periodically update the (slow) PWM power of the heater
-        if(absolute_time_diff_us(get_absolute_time(),tpo_interval_time) < 0) {
-            tpo_interval_time = make_timeout_time_ms(TPO_INTERVAL_TIME);
-
-           // apply heaterpower
-           tpo_apply();
-        }
-
-
-        // Periodically run the control state machine
-        if(absolute_time_diff_us(get_absolute_time(),pidctrl_interval_time) < 0) {
-            pidctrl_interval_time = make_timeout_time_ms(PID_CTRL_INTERVAL_TIME);
-
-            // Control task
-
+void task_pidctrl(void)
+{
             if (tempctl.sp_edit_pending &&
                 absolute_time_diff_us(get_absolute_time(), tempctl.sp_settle_time) < 0) {
             
@@ -1103,7 +995,7 @@ int main()
    
                    if (tempctl.skin_ok && tempctl.t_skin >= (tempctl.setpoint.temp-3.0f)) {
                        state = STATE_COAST;
-                       check_interval_time = make_timeout_time_ms(CHECK_INTERVAL_TIME); // postpone heater_check_task()
+                       task_postpone("check", CHECK_INTERVAL_TIME); // postpone heater_check_task()
                        printf("warmer -> Phase coast\n");
                    }
                }
@@ -1242,8 +1134,110 @@ int main()
                state = STATE_IDLE;
                break;
            }
-   
+}
+
+
+int main() 
+{
+    memset((void *)button,0,BUTTON_COUNT);
+    memset((void *)button_pressed,0,sizeof(button_pressed));
+    memset((void *)button_cnt,0,sizeof(button_cnt));
+    memset((void *)&tempctl,0,sizeof(wtempctl_t));
+    memset((void *)&safecheck,0,sizeof(wsafecheck_t));
+    memset((void *)&heatercheck,0,sizeof(wheatercheck_t));
+    //any_button_pressed_delay=0;
+    
+    state = STATE_IDLE;
+
+    // some move to EEPROM later !!!
+    babylight = 0;
+    heater_mode = HEATER_MODE_PID; 
+    timer_started = 0;
+    alarm.alarm = false;
+    alarm.muted = false;
+    alarm.muted_time = get_absolute_time(); // initially safe
+
+    tempctl.setpoint.temp = SETPOINT_TEMP_DEF;
+    tempctl.setpoint.percent = SETPOINT_PCT_DEF;
+
+    stdio_init_all();
+    setup_gpios();
+    init_seg7();
+
+
+    // Initialise ADC
+    ads1115_init(i2c0, ADS1115_I2C_ADDR, &adc);
+    ads1115_set_input_mux(ADS1115_MUX_DIFF_0_1, &adc);
+    //ads1115_set_pga(ADS1115_PGA_4_096, &adc); // +/- 4V
+    //ads1115_set_pga(ADS1115_PGA_2_048, &adc); // +/- 2V // default
+    ads1115_set_pga(ADS1115_PGA_1_024, &adc); // +/- 1V  TODO FIXME
+    ads1115_set_data_rate(ADS1115_RATE_128_SPS, &adc); // default
+    ads1115_write_config(&adc);
+
+    // Required bugfix in: ~/pico/pico-ads1115/lib/ads1115.cpp line 25:
+    //    while ((adc->config & ADS1115_STATUS_MASK) == ADS1115_STATUS_BUSY){
+    // ---> added the '(' and ')' !!
+    // otherwise both t_skin and t_ambient show the same value
+
+
+    // boot on delay
+    sleep_ms(2000);
+
+    if (watchdog_caused_reboot()) {
+        printf("Rebooted by watchdog\r\n");
+    } else {
+        printf("Clean boot\r\n");
+    }
+    printf("%s [%s] startup\r\n",INTRO_LOGO,SW_VERSION);
+
+    printf("PWM slice number %d\n",pwm_gpio_to_slice_num(PIN_SSR_BARGRPH));
+    printf("PWM channel number %d\n",pwm_gpio_to_channel(PIN_SSR_BARGRPH));
+
+    // interrupt service for apgar start timer
+    time_isr_enter = to_ms_since_boot(get_absolute_time());
+    gpio_set_irq_enabled_with_callback(button_pin[BUTTON_START], GPIO_IRQ_EDGE_FALL , true, &isr_enter);
+    struct repeating_timer timer;
+    add_repeating_timer_ms(-5, repeating_timer_callback, NULL, &timer);
+
+    watchdog_enable(0x7fffff, 1); // 8 seconds (is max)
+    // Register periodic tasks with the cooperative scheduler
+    // (kernel/task.h). Same functions, same intervals as before this
+    // step -- replaces the hand-rolled absolute_time_t deadlines with
+    // task_register()/task_run().
+    task_register("animation", animation,    ANIMATION_INTERVAL_TIME);
+    task_register("minute",    task_minute,  MINUTE_INTERVAL_TIME);
+    task_register("sensor",    task_sensor,  SENSOR_INTERVAL_TIME);
+    task_register("check",     task_check,   CHECK_INTERVAL_TIME);
+    task_register("tpo",       tpo_apply,    TPO_INTERVAL_TIME);
+    task_register("pidctrl",   task_pidctrl, PID_CTRL_INTERVAL_TIME);
+
+
+
+    /* ════════════════════════════════════════════
+       Main control loop
+       ════════════════════════════════════════════ */
+    while(1) {
+        task_run();
+        watchdog_update();
+
+        if(alarm.alarm) {
+            gpio_put(PIN_ALARM_LED, 0); // PIN_ALARM_LED is inverted in hardware
+
+            if(absolute_time_diff_us(get_absolute_time(),alarm.muted_time) < 0) {
+                alarm.muted =false;
+            }
+
+            if(alarm.muted) {
+                gpio_put(PIN_ALARM, 0);
+            } else {
+                gpio_put(PIN_ALARM, 1);
+            }
+        } else {
+            gpio_put(PIN_ALARM_LED, 1);
+            gpio_put(PIN_ALARM, 0);
+            alarm.muted=false;
         }
+
     }
     return 0;
 }
