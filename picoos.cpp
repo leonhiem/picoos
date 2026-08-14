@@ -293,7 +293,6 @@ typedef struct wheatercheck_s {
 } wheatercheck_t;
 
 void setup_gpios(void);
-void animation(void);
 
 // button irq begin
 volatile bool button_state;
@@ -662,7 +661,20 @@ void heater_check_task(bool first_time)
 /*
  * Show all information on displays
  */
-void animation(void) 
+/* ═══════════════════════════════════════════════════
+   task_display / task_input / task_alarm
+   Split out of the old animation() (which mixed all three
+   concerns) plus the alarm-buzzer code that used to sit
+   unconditionally in main()'s while(1). Mechanical split --
+   each still touches the same variables the same way; no
+   ownership/queue changes yet. One deliberate cadence change:
+   the buzzer used to be checked every loop spin (effectively
+   continuous); it's now on the same 160ms cadence as display/
+   input, since it's an operator notification, not a safety
+   actuator (PIN_HEATERSAFE/watchdog are handled elsewhere,
+   immediately, in task_pidctrl/task_check).
+   ═══════════════════════════════════════════════════ */
+void task_display(void)
 {
     led_t led={0,0,0,0,0,0,0};
     uint8_t digl3;
@@ -693,13 +705,6 @@ void animation(void)
 
     led.low = tempctl.templow;
     led.high = tempctl.temphigh;
-
-    //if(safecheck.warn || tempctl.templow || tempctl.temphigh || heatercheck.fail) {
-    if( tempctl.templow || tempctl.temphigh || heatercheck.fail) {
-        alarm.alarm = true;
-    } else {
-        alarm.alarm = false;
-    }
 
     if(display_needs_refresh) {
         if(heater_mode == HEATER_MODE_PID) { // tempctl.setpoint.temp
@@ -733,7 +738,10 @@ void animation(void)
         update_7seg(digl3, digl2, digl1,dotl, digs3, digs2, digs1,dots, led);
         display_needs_refresh=false;
     }
+}
 
+void task_input(void)
+{
     if(button[BUTTON_UP]) {
         button[BUTTON_UP]=false;
         if(heater_mode == HEATER_MODE_PID) { // tempctl.setpoint.temp
@@ -795,6 +803,36 @@ void animation(void)
         else gpio_put(PIN_LAMP, 0);
     }
 }
+
+void task_alarm(void)
+{
+    //if(safecheck.warn || tempctl.templow || tempctl.temphigh || heatercheck.fail) {
+    if( tempctl.templow || tempctl.temphigh || heatercheck.fail) {
+        alarm.alarm = true;
+    } else {
+        alarm.alarm = false;
+    }
+
+        if(alarm.alarm) {
+            gpio_put(PIN_ALARM_LED, 0); // PIN_ALARM_LED is inverted in hardware
+
+            if(absolute_time_diff_us(get_absolute_time(),alarm.muted_time) < 0) {
+                alarm.muted =false;
+            }
+
+            if(alarm.muted) {
+                gpio_put(PIN_ALARM, 0);
+            } else {
+                gpio_put(PIN_ALARM, 1);
+            }
+        } else {
+            gpio_put(PIN_ALARM_LED, 1);
+            gpio_put(PIN_ALARM, 0);
+            alarm.muted=false;
+        }
+}
+
+
 
 
 /* ═══════════════════════════════════════════════════
@@ -1204,7 +1242,9 @@ int main()
     // (kernel/task.h). Same functions, same intervals as before this
     // step -- replaces the hand-rolled absolute_time_t deadlines with
     // task_register()/task_run().
-    task_register("animation", animation,    ANIMATION_INTERVAL_TIME);
+    task_register("display", task_display, ANIMATION_INTERVAL_TIME);
+    task_register("input",   task_input,   ANIMATION_INTERVAL_TIME);
+    task_register("alarm",   task_alarm,   ANIMATION_INTERVAL_TIME);
     task_register("minute",    task_minute,  MINUTE_INTERVAL_TIME);
     task_register("sensor",    task_sensor,  SENSOR_INTERVAL_TIME);
     task_register("check",     task_check,   CHECK_INTERVAL_TIME);
@@ -1219,25 +1259,6 @@ int main()
     while(1) {
         task_run();
         watchdog_update();
-
-        if(alarm.alarm) {
-            gpio_put(PIN_ALARM_LED, 0); // PIN_ALARM_LED is inverted in hardware
-
-            if(absolute_time_diff_us(get_absolute_time(),alarm.muted_time) < 0) {
-                alarm.muted =false;
-            }
-
-            if(alarm.muted) {
-                gpio_put(PIN_ALARM, 0);
-            } else {
-                gpio_put(PIN_ALARM, 1);
-            }
-        } else {
-            gpio_put(PIN_ALARM_LED, 1);
-            gpio_put(PIN_ALARM, 0);
-            alarm.muted=false;
-        }
-
     }
     return 0;
 }
