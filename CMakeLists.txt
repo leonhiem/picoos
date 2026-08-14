@@ -21,6 +21,7 @@ add_subdirectory("../pico-ads1115/lib" pico-ads1115)
 # into future projects wholesale.
 add_library(picoos_kernel
     kernel/task.cpp
+    kernel/klog.cpp
 )
 target_include_directories(picoos_kernel PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(picoos_kernel pico_stdlib)
@@ -34,6 +35,16 @@ target_link_libraries(blink_demo picoos_kernel pico_stdlib)
 pico_enable_stdio_usb(blink_demo 1)
 pico_enable_stdio_uart(blink_demo 0)
 pico_add_extra_outputs(blink_demo)
+
+# klog_demo: proves serialized cross-task logging (klog/klog_flush) before
+# picoos.cpp's tasks are migrated onto it.
+add_executable(klog_demo
+    demo_klog.cpp
+)
+target_link_libraries(klog_demo picoos_kernel pico_stdlib)
+pico_enable_stdio_usb(klog_demo 1)
+pico_enable_stdio_uart(klog_demo 0)
+pico_add_extra_outputs(klog_demo)
 
 #add_library(LoRa_pico_lib ../LoRa-pi-pico/src/LoRa-RP2040.cpp ../LoRa-pi-pico/src/LoRa-RP2040.h)
 
