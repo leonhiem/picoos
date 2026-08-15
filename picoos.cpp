@@ -137,6 +137,7 @@ int main()
     current_register();
     heater_register();
     relay_register();
+    setpoint_register();
 
     cat_register();
     echo_register();
@@ -144,8 +145,9 @@ int main()
     ls_register();
     jobs_init();
 
-    task_register("shell", task_shell, 30); // 30ms: responsive to typing
-    task_register("tpo",   tpo_apply,  TPO_INTERVAL_TIME); // applies /dev/heater's value
+    task_register("shell",    task_shell,             30); // 30ms: responsive to typing
+    task_register("tpo",      tpo_apply,  TPO_INTERVAL_TIME); // applies /dev/heater's value
+    task_register("setpoint", task_setpoint_buttons,  150); // polls UP/DOWN for /dev/setpoint
 
     while(1) {
         task_run();

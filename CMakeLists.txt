@@ -25,6 +25,7 @@ add_executable(picoos
     dev/current.cpp
     dev/heater.cpp
     dev/relay.cpp
+    dev/setpoint.cpp
     prog/cat.cpp
     prog/echo.cpp
     prog/thresh.cpp
