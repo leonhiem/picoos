@@ -117,6 +117,7 @@ void task_setpoint_buttons(void); // registered as a task from main(), like tpo_
 void cat_register(void);
 void echo_register(void);
 void thresh_register(void);
+void hyst_register(void);
 void ls_register(void);
 
 // shell.cpp

@@ -142,6 +142,7 @@ int main()
     cat_register();
     echo_register();
     thresh_register();
+    hyst_register();
     ls_register();
     jobs_init();
 

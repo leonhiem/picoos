@@ -29,6 +29,7 @@ add_executable(picoos
     prog/cat.cpp
     prog/echo.cpp
     prog/thresh.cpp
+    prog/hyst.cpp
     prog/ls.cpp
 )
 add_subdirectory("../pico-onewire" pico_one_wire)
