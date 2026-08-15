@@ -4,7 +4,12 @@
  * A pipeline is a chain of program stages (kernel/prog.h) with optional
  * `<`/`>` device redirects. pipeline_run_once() runs it synchronously
  * once, either printing the result to the terminal or writing it to a
- * `>` device.
+ * `>` device -- except backgrounded jobs with no `>` redirect, which
+ * print nothing: a job like `toggle ... &` normally has nothing to say
+ * ("idle") on most ticks, and printing that to the terminal every
+ * JOB_POLL_MS would spam it badly. Foreground commands always print
+ * (there's no other way to see the result); a background job with a
+ * `>` still writes there every tick same as always.
  *
  * Backgrounding (`&`) doesn't fork -- there's no process model here,
  * just kernel/task.h's cooperative scheduler. A fixed pool of MAX_JOBS
@@ -16,6 +21,10 @@
  * pointer, so the trampolines are hand-duplicated one per slot. Fine
  * at MAX_JOBS=4; a context-carrying task_register() would be worth it
  * if this ever needed to grow much.
+ *
+ * All jobs share one fixed poll interval (JOB_POLL_MS) -- not
+ * independently tunable per job yet. 150ms was chosen for button-press
+ * responsiveness (toggle); still plenty slow enough for a thermostat.
  */
 #pragma once
 
@@ -23,7 +32,11 @@
 #define JOB_MAX_ARGS   4
 #define JOB_TOK_MAX    24
 #define MAX_JOBS       4
-#define STAGE_BUF      256
+#define STAGE_BUF      512 // ls's own listing needs ~300 bytes already and grows
+                            // with every device/program added -- 256 silently
+                            // truncated it, which is what surfaced this whole
+                            // class of snprintf-overcounting bug in the first place
+#define JOB_POLL_MS    150
 
 typedef struct {
     char argv[JOB_MAX_ARGS][JOB_TOK_MAX];
@@ -39,7 +52,7 @@ typedef struct {
     char redirect_in[JOB_TOK_MAX];
 } pipeline_t;
 
-void pipeline_run_once(pipeline_t *p);
+void pipeline_run_once(pipeline_t *p, bool print_if_no_redirect);
 
 void jobs_init(void);
 int  job_start(const pipeline_t *p);  // returns job id (1..MAX_JOBS), or -1 if all slots busy

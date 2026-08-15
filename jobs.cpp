@@ -5,7 +5,7 @@
 #include <cstdio>
 #include <cstring>
 
-void pipeline_run_once(pipeline_t *p)
+void pipeline_run_once(pipeline_t *p, bool print_if_no_redirect)
 {
     char buf_a[STAGE_BUF];
     char buf_b[STAGE_BUF];
@@ -42,7 +42,7 @@ void pipeline_run_once(pipeline_t *p)
         if (fd < 0) { printf("%s: no such device\n", p->redirect_out); return; }
         fs_write(fd, cur, cur_len);
         fs_close(fd);
-    } else {
+    } else if (print_if_no_redirect) {
         for (int i = 0; i < cur_len; i++) putchar(cur[i]);
         if (cur_len == 0 || cur[cur_len - 1] != '\n') putchar('\n');
     }
@@ -58,7 +58,7 @@ static job_slot_t slots[MAX_JOBS];
 static void run_slot(int i)
 {
     if (!slots[i].active) return;
-    pipeline_run_once(&slots[i].p);
+    pipeline_run_once(&slots[i].p, false); // background: no spam without a > redirect
 }
 
 static void job_task_0(void) { run_slot(0); }
@@ -69,10 +69,10 @@ static void job_task_3(void) { run_slot(3); }
 void jobs_init(void)
 {
     for (int i = 0; i < MAX_JOBS; i++) slots[i].active = false;
-    task_register("job1", job_task_0, 1000);
-    task_register("job2", job_task_1, 1000);
-    task_register("job3", job_task_2, 1000);
-    task_register("job4", job_task_3, 1000);
+    task_register("job1", job_task_0, JOB_POLL_MS);
+    task_register("job2", job_task_1, JOB_POLL_MS);
+    task_register("job3", job_task_2, JOB_POLL_MS);
+    task_register("job4", job_task_3, JOB_POLL_MS);
 }
 
 int job_start(const pipeline_t *p)

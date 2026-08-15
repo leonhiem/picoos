@@ -9,10 +9,22 @@
  *
  * Grammar: stage [| stage ...] [< path] [> path] [&]
  *   stage := progname [arg...]
- * `jobs` and `kill %<id>` are true shell builtins (they touch the
- * shell's own job table, not a text-in/text-out stream); everything
- * else -- including ls now -- is a program (kernel/prog.h) run through
- * the same pipeline machinery (jobs.h), foreground or backgrounded.
+ * `jobs`, `kill %<id>`, and `sleep <ms>` are true shell builtins (they
+ * touch the shell's own state, not a text-in/text-out stream);
+ * everything else -- including ls now -- is a program (kernel/prog.h)
+ * run through the same pipeline machinery (jobs.h), foreground or
+ * backgrounded.
+ *
+ * `sleep` doesn't block -- nothing in this kernel ever does. It just
+ * remembers a wake time; task_shell() checks it at the top of every
+ * one of its own 30ms ticks and returns immediately (a few
+ * microseconds) if not yet time, same as any other task "waiting"
+ * for its next scheduled run. Everything else (jobs, tpo, setpoint
+ * polling) keeps running completely normally in the meantime -- this
+ * is the existing cooperative model, not a new kernel primitive.
+ * Characters typed during a sleep aren't lost (or echoed) until it
+ * ends -- they just sit in the USB stack's own RX buffer until
+ * getchar_timeout_us() starts being called again.
  */
 #include "kernel/fs.h"
 #include "jobs.h"
@@ -23,6 +35,9 @@
 
 #define LINE_MAX    96
 #define MAX_TOKENS  20
+
+static bool sleeping = false;
+static absolute_time_t wake_time;
 
 static void print_prompt(void)
 {
@@ -95,6 +110,14 @@ static void dispatch(char *line)
         if (!job_kill(atoi(arg))) printf("kill: no such job\n");
         return;
     }
+    if (strcmp(tok[0], "sleep") == 0) {
+        if (ntok < 2) { printf("usage: sleep <ms>\n"); return; }
+        int ms = atoi(tok[1]);
+        if (ms < 0) ms = 0;
+        wake_time = make_timeout_time_ms(ms);
+        sleeping = true;
+        return; // no prompt yet -- task_shell() prints one once awake
+    }
     if (tok[0][0] == '\0') return;
     if (strcmp(tok[0], "|") == 0 || strcmp(tok[0], ">") == 0) {
         printf("empty pipeline\n");
@@ -111,7 +134,7 @@ static void dispatch(char *line)
         if (id < 0) printf("no free job slots (max %d)\n", MAX_JOBS);
         else printf("[%d]\n", id);
     } else {
-        pipeline_run_once(&p);
+        pipeline_run_once(&p, true); // foreground: always show the result
     }
 }
 
@@ -127,6 +150,13 @@ void task_shell(void)
         banner_shown = true;
     }
 
+    if (sleeping) {
+        if (absolute_time_diff_us(get_absolute_time(), wake_time) > 0) return; // not yet
+        sleeping = false;
+        print_prompt();
+        // fall through: process any input that arrived while asleep
+    }
+
     int c;
     while ((c = getchar_timeout_us(0)) != PICO_ERROR_TIMEOUT) {
         if (c == '\r' || c == '\n') {
@@ -134,7 +164,7 @@ void task_shell(void)
             line[line_len] = '\0';
             dispatch(line);
             line_len = 0;
-            print_prompt();
+            if (!sleeping) print_prompt(); // sleep set this; its own wake-up prints the prompt instead
         } else if (c == 8 || c == 127) { // backspace / DEL
             if (line_len > 0) {
                 line_len--;

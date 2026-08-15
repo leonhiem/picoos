@@ -103,6 +103,7 @@ void heater_set_power(float pct); // clamped to [0,100]; dev/heater.cpp calls th
 void skintemp_register(void);
 void lamp_register(void);
 void buttons_register(void);
+void button_devices_register(void); // /dev/buttons/<name>, dev/buttons.cpp
 void leds_register(void);
 void seg7big_register(void);
 void seg7small_register(void);
@@ -118,6 +119,7 @@ void cat_register(void);
 void echo_register(void);
 void thresh_register(void);
 void hyst_register(void);
+void toggle_register(void);
 void ls_register(void);
 
 // shell.cpp

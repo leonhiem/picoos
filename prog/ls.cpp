@@ -18,17 +18,26 @@ static int ls_run(const char *in, int inlen, int argc, char **argv, char *out, i
     (void)argc;
     (void)argv;
 
+    // snprintf() returns how many bytes it *would* write if the buffer
+    // were big enough, not how many it actually wrote -- trusting that
+    // return value to advance pos overcounts once the buffer runs low,
+    // so later code (pipeline_run_once) prints past the real content
+    // into whatever uninitialized memory follows it. n >= avail means
+    // truncation happened: stop rather than count (or include) a
+    // truncated entry.
     int pos = 0;
     int nd = fs_count();
-    for (int i = 0; i < nd && pos < outlen; i++) {
-        int n = snprintf(out + pos, outlen - pos, "%s\n", fs_name(i));
-        if (n < 0) break;
+    for (int i = 0; i < nd; i++) {
+        int avail = outlen - pos;
+        int n = snprintf(out + pos, avail, "%s\n", fs_name(i));
+        if (n < 0 || n >= avail) break;
         pos += n;
     }
     int np = prog_count();
-    for (int i = 0; i < np && pos < outlen; i++) {
-        int n = snprintf(out + pos, outlen - pos, "bin/%s\n", prog_name(i));
-        if (n < 0) break;
+    for (int i = 0; i < np; i++) {
+        int avail = outlen - pos;
+        int n = snprintf(out + pos, avail, "bin/%s\n", prog_name(i));
+        if (n < 0 || n >= avail) break;
         pos += n;
     }
     return pos;

@@ -130,6 +130,7 @@ int main()
     skintemp_register();
     lamp_register();
     buttons_register();
+    button_devices_register();
     leds_register();
     seg7big_register();
     seg7small_register();
@@ -143,6 +144,7 @@ int main()
     echo_register();
     thresh_register();
     hyst_register();
+    toggle_register();
     ls_register();
     jobs_init();
 
