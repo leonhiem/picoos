@@ -97,6 +97,7 @@ void tpo_apply(void);
 // dev/*.cpp -- register each device with kernel/fs.h's namespace.
 void skintemp_register(void);
 void lamp_register(void);
+void buttons_register(void);
 
 // shell.cpp
 void task_shell(void);

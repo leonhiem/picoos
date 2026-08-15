@@ -128,6 +128,7 @@ int main()
     // Populate /dev, then the shell that lets you poke at it.
     skintemp_register();
     lamp_register();
+    buttons_register();
     task_register("shell", task_shell, 30); // 30ms: responsive to typing
 
     while(1) {
