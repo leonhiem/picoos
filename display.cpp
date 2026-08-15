@@ -1,7 +1,12 @@
+/**
+ * display.cpp — 7-segment/LED shift-register primitives only
+ *
+ * task_display (the old LED/setpoint rendering) is gone with the
+ * control loop it displayed. What's left is the raw hardware driver --
+ * the natural thing for a future /dev/7seg device to call.
+ */
 #include "warmer.h"
 #include "hardware/gpio.h"
-
-bool display_needs_refresh=true;
 
 /* Segment and LED lookup tables.
  * Defined here so init_seg7/clear_seg7 can also use SEG_BLANK / SEG_ALL. */
@@ -73,84 +78,4 @@ void init_seg7(void)
     update_7seg(SEG_ALL, SEG_ALL, SEG_ALL,1, SEG_ALL, SEG_ALL, SEG_ALL,1, led);
     sleep_ms(1000);
     clear_seg7();
-}
-
-
-/* ═══════════════════════════════════════════════════
-   task_display / task_input / task_alarm
-   Split out of the old animation() (which mixed all three
-   concerns) plus the alarm-buzzer code that used to sit
-   unconditionally in main()'s while(1). Mechanical split --
-   each still touches the same variables the same way; no
-   ownership/queue changes yet. One deliberate cadence change:
-   the buzzer used to be checked every loop spin (effectively
-   continuous); it's now on the same 160ms cadence as display/
-   input, since it's an operator notification, not a safety
-   actuator (PIN_HEATERSAFE/watchdog are handled elsewhere,
-   immediately, in task_pidctrl/task_check).
-   ═══════════════════════════════════════════════════ */
-void task_display(void)
-{
-    led_t led={0,0,0,0,0,0,0};
-    uint8_t digl3;
-    uint8_t digl2;
-    uint8_t digl1;
-    uint8_t digs3;
-    uint8_t digs2;
-    uint8_t digs1;
-    uint8_t dots=0;
-    uint8_t dotl=0;
-
-    if(heater_mode == HEATER_MODE_PID) {
-        led.aut = 1;
-        led.man = 0;
-    } else { // HEATER_MODE_MANUAL
-        led.aut = 0;
-        led.man = 1;
-    }
-    if(heatercheck.fail) {
-        led.fail = 1;
-    } else {
-        led.fail = 0;
-    }
-    if(tempctl.heaterpower > 80.0) {
-        led.warm = 1;
-    }
-    led.chk = safecheck.warn;
-
-    led.low = tempctl.templow;
-    led.high = tempctl.temphigh;
-
-    if(display_needs_refresh) {
-        if(heater_mode == HEATER_MODE_PID) { // tempctl.setpoint.temp
-
-            uint16_t p = (uint16_t)(tempctl.setpoint.temp*10.0);
-            digs1=(uint8_t)(p/100);
-            if(digs1==0) digs1=SEG_BLANK;
-            digs2=(uint8_t)((p/10)%10);
-            digs3=(uint8_t)(p%10);
-            dots=1;
-
-        } else { // tempctl.setpoint.percent // HEATER_MODE_MANUAL
-            uint16_t p = (uint16_t)tempctl.setpoint.percent;
-            digs1=(uint8_t)(p/100);
-            if(digs1==0) digs1=SEG_BLANK;
-            digs2=(uint8_t)((p/10)%10);
-            if(digs1==SEG_BLANK && digs2==0) {
-                digs2=SEG_BLANK;
-            }
-            digs3=(uint8_t)(p%10);
-            dots=0;
-        }
-
-        uint16_t p = (uint16_t)(tempctl.t_skin*10.0);
-        digl1=(uint8_t)(p/100);
-        if(digl1==0) digl1=SEG_BLANK;
-        digl2=(uint8_t)((p/10)%10);
-        digl3=(uint8_t)(p%10);
-        dotl=1;
-
-        update_7seg(digl3, digl2, digl1,dotl, digs3, digs2, digs1,dots, led);
-        display_needs_refresh=false;
-    }
 }

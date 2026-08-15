@@ -1,3 +1,10 @@
+/**
+ * buttons.cpp — button debounce primitives only
+ *
+ * task_input (button-to-setpoint-editing logic) is gone with the
+ * control loop it edited. What's left is the raw debounced button
+ * state -- the natural thing for a future /dev/button device to read.
+ */
 #include "warmer.h"
 #include "hardware/gpio.h"
 #include <cstdio>
@@ -24,7 +31,7 @@ void isr_enter(uint gpio, uint32_t events) {
     if ((to_ms_since_boot(get_absolute_time())-time_isr_enter)>delayTime) {
         // Recommend to not to change the position of this line
         time_isr_enter = to_ms_since_boot(get_absolute_time());
-        
+
         // Interrupt function lines
         //button_state = !button_state;
         //gpio_put(LED_PIN, button_state);
@@ -43,7 +50,7 @@ bool any_button_pressed(void)
             button[BUTTON_START] ||
             button[BUTTON_LAMP]);
 }
-void reset_all_buttons(void) 
+void reset_all_buttons(void)
 
 {
     button[BUTTON_UP]=false;
@@ -56,7 +63,7 @@ void reset_all_buttons(void)
 
 
 volatile bool timer_fired = false;
- 
+
 int64_t alarm_callback(alarm_id_t id, void *user_data) {
     printf("Timer %d fired!\n", (int) id);
     timer_fired = true;
@@ -64,7 +71,7 @@ int64_t alarm_callback(alarm_id_t id, void *user_data) {
     return 0;
 }
 
-bool repeating_timer_callback(struct repeating_timer *t) 
+bool repeating_timer_callback(struct repeating_timer *t)
 {
     int i;
     for(i=0;i<BUTTON_COUNT;i++) {
@@ -76,69 +83,4 @@ bool repeating_timer_callback(struct repeating_timer *t)
         } else if(button_cnt[i]>0) button_cnt[i]--;
     }
     return true;
-}
- 
-
-void task_input(void)
-{
-    if(button[BUTTON_UP]) {
-        button[BUTTON_UP]=false;
-        if(heater_mode == HEATER_MODE_PID) { // tempctl.setpoint.temp
-            if (!tempctl.sp_edit_pending) {                          // ← capture start-of-session
-                tempctl.sp_before_edit  = tempctl.setpoint.temp;
-                tempctl.sp_edit_pending = true;
-            }
-            tempctl.sp_settle_time = make_timeout_time_ms(5000);    // ← (re)arm 5 s window
-
-            if(tempctl.setpoint.temp < SETPOINT_TEMP_MAX) {
-                tempctl.setpoint.temp = tempctl.setpoint.temp+0.5;
-            }
-        } else { // tempctl.setpoint.percent // HEATER_MODE_MANUAL
-            if(tempctl.setpoint.percent < 80.0) {
-                tempctl.setpoint.percent = tempctl.setpoint.percent+5.0;
-            }
-        }
-
-        display_needs_refresh=true;
-    } else if(button[BUTTON_DOWN]) {
-        button[BUTTON_DOWN]=false;
-        if(heater_mode == HEATER_MODE_PID) { // tempctl.setpoint.temp
-            if (!tempctl.sp_edit_pending) {                          // ← capture start-of-session
-                tempctl.sp_before_edit  = tempctl.setpoint.temp;
-                tempctl.sp_edit_pending = true;
-            }
-            tempctl.sp_settle_time = make_timeout_time_ms(5000);    // ← (re)arm 5 s window
-
-            if(tempctl.setpoint.temp > SETPOINT_TEMP_MIN) {
-                tempctl.setpoint.temp = tempctl.setpoint.temp-0.5;
-            }
-        } else { // tempctl.setpoint.percent // HEATER_MODE_MANUAL
-            if(tempctl.setpoint.percent > 0.0) {
-                tempctl.setpoint.percent = tempctl.setpoint.percent-5.0;
-            }
-        }
-        display_needs_refresh=true;
-    } else if(button[BUTTON_MUTE]) {
-        button[BUTTON_MUTE]=false;
-        alarm.muted=true;
-        alarm.muted_time = make_timeout_time_ms(MUTE_INTERVAL_TIME);
-    } else if(button[BUTTON_MANUAL]) {
-        button[BUTTON_MANUAL]=false;
-        heater_mode=!heater_mode; // toggle HEATER_MODE_PID <--> HEATER_MODE_MANUAL
-        if(heater_mode == HEATER_MODE_MANUAL) {
-            // Customer requested: manual mode always starts at default %, no
-            // memory of the previously-set value across mode transitions.
-            tempctl.setpoint.percent = SETPOINT_PCT_DEF;
-        }
-        display_needs_refresh=true;
-    } else if(button[BUTTON_START]) {
-        button[BUTTON_START]=false;
-        timer_started=!timer_started;
-        display_needs_refresh=true;
-    } else if(button[BUTTON_LAMP]) {
-        button[BUTTON_LAMP]=false;
-        babylight=!babylight;
-        if(babylight) gpio_put(PIN_LAMP, 1); 
-        else gpio_put(PIN_LAMP, 0);
-    }
 }
