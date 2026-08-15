@@ -129,7 +129,15 @@ int main()
     skintemp_register();
     lamp_register();
     buttons_register();
+    leds_register();
+    seg7big_register();
+    seg7small_register();
+    alarm_register();
+    current_register();
+    heater_register();
+    relay_register();
     task_register("shell", task_shell, 30); // 30ms: responsive to typing
+    task_register("tpo",   tpo_apply,  TPO_INTERVAL_TIME); // applies /dev/heater's value
 
     while(1) {
         task_run();

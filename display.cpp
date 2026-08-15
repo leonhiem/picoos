@@ -7,22 +7,24 @@
  */
 #include "warmer.h"
 #include "hardware/gpio.h"
-
-/* Segment and LED lookup tables.
- * Defined here so init_seg7/clear_seg7 can also use SEG_BLANK / SEG_ALL. */
-#define SEG_BLANK 10
-#define SEG_ALL   11
+// SEG_BLANK/SEG_ALL now live in warmer.h -- dev/seg7.cpp needs them too.
 
 /* ═══════════════════════════════════════════════════
    update_7seg()
    Shifts 56 bits into the 74HC595 chain (7 bytes):
-     byte 7 : digit_l3  (large display, most-significant digit)
+     byte 7 : digit_l3  (large display, least-significant digit)
      byte 6 : digit_l2  (large display, middle digit + dot)
-     byte 5 : digit_l1  (large display, least-significant digit)
+     byte 5 : digit_l1  (large display, most-significant digit)
      byte 4 : LEDs
-     byte 3 : digit_s3  (small display, most-significant digit)
+     byte 3 : digit_s3  (small display, least-significant digit)
      byte 2 : digit_s2  (small display, middle digit + dot)
-     byte 1 : digit_s1  (small display, least-significant digit)
+     byte 1 : digit_s1  (small display, most-significant digit)
+
+   (Corrected 2026-08-15: this comment previously had significance
+   backwards -- caught when dev/seg7.cpp trusted it and displayed every
+   number reversed. The digl3/digs3-first argument order was always
+   correct on real hardware; only the "most/least-significant" labels
+   were swapped.)
 
    Timing: no sleep_ms() — gpio_put() on RP2040 takes ~50–100 ns
    through the SIO bus, well above the HC595's 25 ns data-setup

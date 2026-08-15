@@ -19,6 +19,11 @@ add_executable(picoos
     dev/skintemp.cpp
     dev/lamp.cpp
     dev/buttons.cpp
+    dev/seg7.cpp
+    dev/alarm.cpp
+    dev/current.cpp
+    dev/heater.cpp
+    dev/relay.cpp
 )
 add_subdirectory("../pico-onewire" pico_one_wire)
 add_subdirectory("../pico-ads1115/lib" pico-ads1115)

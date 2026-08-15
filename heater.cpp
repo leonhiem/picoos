@@ -6,16 +6,22 @@
  * (heater_check_task/task_check) are gone -- this is the experimental
  * line, ripped out on purpose. What's left is tpo_apply(): the actual
  * hardware primitive that turns a 0-100 power value into SSR on/off
- * timing and a PWM bargraph level. Nothing currently sets that power
- * value; a future /dev/heater device is the natural thing to call this
- * from.
+ * timing and a PWM bargraph level. dev/heater.cpp's heater_set_power()
+ * sets that value; tpo_apply() itself is registered as a task from
+ * main() to actually apply it on a schedule.
  */
 #include "warmer.h"
 #include "hardware/pwm.h"
 #include "hardware/gpio.h"
 
-static float heaterpower = 0.0f; // 0-100; will get a real writer once
-                                  // /dev/heater exists
+static float heaterpower = 0.0f; // 0-100; set via heater_set_power()
+
+void heater_set_power(float pct)
+{
+    if (pct < 0.0f)   pct = 0.0f;
+    if (pct > 100.0f) pct = 100.0f;
+    heaterpower = pct;
+}
 
 /* ═══════════════════════════════════════════════════
    tpo_apply()

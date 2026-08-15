@@ -51,15 +51,19 @@ typedef struct led_s {
     uint8_t man;
 } led_t;
 
+// Digit values for update_7seg()'s dig* args -- 0-9 are literal digits.
+#define SEG_BLANK 10
+#define SEG_ALL   11
+
 #define ADS1115_I2C_ADDR 0x48  /* I2C address */
 
-/* Time-Proportional Output (TPO) -- tpo_apply() is kept as a low-level
- * primitive (drives PIN_SSR/the PWM bargraph from a 0-100 power value)
- * even though nothing currently sets that value; a future /dev/heater
- * device is the natural thing to wire in front of it. */
+/* Time-Proportional Output (TPO) -- tpo_apply() is the low-level
+ * primitive (drives PIN_SSR/the PWM bargraph from a 0-100 power value);
+ * dev/heater.cpp's heater_set_power() is what sets that value now. */
 #define TPO_PERIOD_MS  15000  /* 15-second window */
 #define TICK_MS          100  /* tick used by TPO_TICKS */
 #define TPO_TICKS      (TPO_PERIOD_MS / TICK_MS)   /* = 150 ticks */
+#define TPO_INTERVAL_TIME (100) /* 100 ms: how often tpo_apply() ticks */
 
 #define PWM_SLICE_NUM 0
 #define PWM_WRAP_VAL 0xFFFF
@@ -93,11 +97,19 @@ void clear_seg7(void);
 void init_seg7(void);
 
 void tpo_apply(void);
+void heater_set_power(float pct); // clamped to [0,100]; dev/heater.cpp calls this
 
 // dev/*.cpp -- register each device with kernel/fs.h's namespace.
 void skintemp_register(void);
 void lamp_register(void);
 void buttons_register(void);
+void leds_register(void);
+void seg7big_register(void);
+void seg7small_register(void);
+void alarm_register(void);
+void current_register(void);
+void heater_register(void);
+void relay_register(void);
 
 // shell.cpp
 void task_shell(void);
