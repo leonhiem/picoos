@@ -12,6 +12,11 @@ pico_sdk_init()
 
 add_executable(picoos
     picoos.cpp
+    buttons.cpp
+    display.cpp
+    heater.cpp
+    sensors.cpp
+    alarm.cpp
 )
 add_subdirectory("../pico-onewire" pico_one_wire)
 add_subdirectory("../pico-ads1115/lib" pico-ads1115)
