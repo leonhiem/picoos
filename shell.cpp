@@ -3,89 +3,115 @@
  *
  * Polls stdio non-blocking (getchar_timeout_us(0)), so it fits the
  * cooperative model with no scheduler changes. Echoes what's typed and
- * dispatches complete lines against the /dev namespace (kernel/fs.h).
- * Talks to stdio directly rather than through klog -- interactive echo
- * needs to be immediate, not batched behind a flush task.
+ * dispatches complete lines. Talks to stdio directly rather than
+ * through klog -- interactive echo needs to be immediate, not batched
+ * behind a flush task.
  *
- * Commands: ls, cat <path>, write <path> <text...>. Deliberately no
- * pipes/redirection yet -- this is the seed, not the shell.
+ * Grammar: stage [| stage ...] [< path] [> path] [&]
+ *   stage := progname [arg...]
+ * `jobs` and `kill %<id>` are true shell builtins (they touch the
+ * shell's own job table, not a text-in/text-out stream); everything
+ * else -- including ls now -- is a program (kernel/prog.h) run through
+ * the same pipeline machinery (jobs.h), foreground or backgrounded.
  */
 #include "kernel/fs.h"
+#include "jobs.h"
 #include "pico/stdlib.h"
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 
-#define LINE_MAX 80
+#define LINE_MAX    96
+#define MAX_TOKENS  20
 
 static void print_prompt(void)
 {
     printf("%% ");
 }
 
-static void cmd_ls(void)
+static int tokenize(char *line, char *tokens[MAX_TOKENS])
 {
-    int n = fs_count();
-    for (int i = 0; i < n; i++) {
-        printf("%s\n", fs_name(i));
+    int n = 0;
+    char *tok = strtok(line, " \t");
+    while (tok && n < MAX_TOKENS) {
+        tokens[n++] = tok;
+        tok = strtok(0, " \t");
     }
+    return n;
 }
 
-static void cmd_cat(char *path)
+static bool parse_pipeline(char **tok, int ntok, pipeline_t *p, bool *background)
 {
-    if (!path) {
-        printf("usage: cat <path>\n");
-        return;
-    }
-    int fd = fs_open(path);
-    if (fd < 0) {
-        printf("cat: no such device: %s\n", path);
-        return;
-    }
-    char buf[64];
-    int n = fs_read(fd, buf, sizeof(buf) - 1);
-    fs_close(fd);
-    if (n < 0) {
-        printf("cat: %s is not readable\n", path);
-        return;
-    }
-    buf[n] = '\0';
-    printf("%s", buf);
-    if (n == 0 || buf[n - 1] != '\n') printf("\n");
-}
+    p->nstages = 1;
+    p->stages[0].argc = 0;
+    p->has_redirect_out = false;
+    p->has_redirect_in = false;
+    *background = false;
 
-static void cmd_write(char *path, char *text)
-{
-    if (!path || !text) {
-        printf("usage: write <path> <text>\n");
-        return;
+    pipeline_stage_t *stage = &p->stages[0];
+
+    for (int i = 0; i < ntok; i++) {
+        const char *t = tok[i];
+        if (strcmp(t, "|") == 0) {
+            if (p->nstages >= JOB_MAX_STAGES) { printf("too many pipeline stages\n"); return false; }
+            stage = &p->stages[p->nstages++];
+            stage->argc = 0;
+        } else if (strcmp(t, ">") == 0) {
+            if (++i >= ntok) { printf("> needs a path\n"); return false; }
+            strncpy(p->redirect_out, tok[i], JOB_TOK_MAX - 1);
+            p->redirect_out[JOB_TOK_MAX - 1] = '\0';
+            p->has_redirect_out = true;
+        } else if (strcmp(t, "<") == 0) {
+            if (++i >= ntok) { printf("< needs a path\n"); return false; }
+            strncpy(p->redirect_in, tok[i], JOB_TOK_MAX - 1);
+            p->redirect_in[JOB_TOK_MAX - 1] = '\0';
+            p->has_redirect_in = true;
+        } else if (strcmp(t, "&") == 0) {
+            *background = true;
+        } else {
+            if (stage->argc >= JOB_MAX_ARGS) { printf("too many args in one stage\n"); return false; }
+            strncpy(stage->argv[stage->argc], t, JOB_TOK_MAX - 1);
+            stage->argv[stage->argc][JOB_TOK_MAX - 1] = '\0';
+            stage->argc++;
+        }
     }
-    int fd = fs_open(path);
-    if (fd < 0) {
-        printf("write: no such device: %s\n", path);
-        return;
-    }
-    int n = fs_write(fd, text, strlen(text));
-    fs_close(fd);
-    if (n < 0) {
-        printf("write: %s rejected \"%s\"\n", path, text);
-    }
+    return true;
 }
 
 static void dispatch(char *line)
 {
-    char *cmd = strtok(line, " \t");
-    if (!cmd) return; // empty line
+    char *tok[MAX_TOKENS];
+    int ntok = tokenize(line, tok);
+    if (ntok == 0) return; // empty line
 
-    if (strcmp(cmd, "ls") == 0) {
-        cmd_ls();
-    } else if (strcmp(cmd, "cat") == 0) {
-        cmd_cat(strtok(0, " \t"));
-    } else if (strcmp(cmd, "write") == 0) {
-        char *path = strtok(0, " \t");
-        char *text = strtok(0, ""); // rest of the line, one token
-        cmd_write(path, text);
+    if (strcmp(tok[0], "jobs") == 0) {
+        job_list();
+        return;
+    }
+    if (strcmp(tok[0], "kill") == 0) {
+        if (ntok < 2) { printf("usage: kill %%<jobid>\n"); return; }
+        const char *arg = tok[1];
+        if (*arg == '%') arg++;
+        if (!job_kill(atoi(arg))) printf("kill: no such job\n");
+        return;
+    }
+    if (tok[0][0] == '\0') return;
+    if (strcmp(tok[0], "|") == 0 || strcmp(tok[0], ">") == 0) {
+        printf("empty pipeline\n");
+        return;
+    }
+
+    pipeline_t p;
+    bool background;
+    if (!parse_pipeline(tok, ntok, &p, &background)) return;
+    if (p.stages[0].argc == 0) return; // e.g. line was just "&"
+
+    if (background) {
+        int id = job_start(&p);
+        if (id < 0) printf("no free job slots (max %d)\n", MAX_JOBS);
+        else printf("[%d]\n", id);
     } else {
-        printf("unknown command: %s\n", cmd);
+        pipeline_run_once(&p);
     }
 }
 
@@ -96,7 +122,7 @@ void task_shell(void)
     static bool banner_shown = false;
 
     if (!banner_shown) {
-        printf("\npicoos -- type 'ls' to see /dev\n");
+        printf("\npicoos -- type 'ls' to see /dev and bin/, 'jobs'/'kill' to manage background pipelines\n");
         print_prompt();
         banner_shown = true;
     }

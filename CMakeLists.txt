@@ -16,6 +16,7 @@ add_executable(picoos
     display.cpp
     heater.cpp
     shell.cpp
+    jobs.cpp
     dev/skintemp.cpp
     dev/lamp.cpp
     dev/buttons.cpp
@@ -24,6 +25,11 @@ add_executable(picoos
     dev/current.cpp
     dev/heater.cpp
     dev/relay.cpp
+    prog/cat.cpp
+    prog/echo.cpp
+    prog/write.cpp
+    prog/thresh.cpp
+    prog/ls.cpp
 )
 add_subdirectory("../pico-onewire" pico_one_wire)
 add_subdirectory("../pico-ads1115/lib" pico-ads1115)
@@ -35,6 +41,7 @@ add_library(picoos_kernel
     kernel/task.cpp
     kernel/klog.cpp
     kernel/fs.cpp
+    kernel/prog.cpp
 )
 target_include_directories(picoos_kernel PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(picoos_kernel pico_stdlib)

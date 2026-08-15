@@ -111,5 +111,12 @@ void current_register(void);
 void heater_register(void);
 void relay_register(void);
 
+// prog/*.cpp -- register each program with kernel/prog.h's registry.
+void cat_register(void);
+void echo_register(void);
+void write_register(void);
+void thresh_register(void);
+void ls_register(void);
+
 // shell.cpp
 void task_shell(void);

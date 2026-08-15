@@ -21,6 +21,7 @@
 #include "pico/binary_info.h"
 #include "kernel/task.h"
 #include "kernel/fs.h"
+#include "jobs.h"
 
 #include "warmer.h"
 
@@ -136,6 +137,14 @@ int main()
     current_register();
     heater_register();
     relay_register();
+
+    cat_register();
+    echo_register();
+    write_register();
+    thresh_register();
+    ls_register();
+    jobs_init();
+
     task_register("shell", task_shell, 30); // 30ms: responsive to typing
     task_register("tpo",   tpo_apply,  TPO_INTERVAL_TIME); // applies /dev/heater's value
 
