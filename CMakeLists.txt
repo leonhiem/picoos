@@ -27,7 +27,6 @@ add_executable(picoos
     dev/relay.cpp
     prog/cat.cpp
     prog/echo.cpp
-    prog/write.cpp
     prog/thresh.cpp
     prog/ls.cpp
 )

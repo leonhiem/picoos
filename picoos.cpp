@@ -140,7 +140,6 @@ int main()
 
     cat_register();
     echo_register();
-    write_register();
     thresh_register();
     ls_register();
     jobs_init();
