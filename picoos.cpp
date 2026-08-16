@@ -132,6 +132,7 @@ int main()
     buttons_register();
     button_devices_register();
     leds_register();
+    led_devices_register();
     seg7big_register();
     seg7small_register();
     alarm_register();

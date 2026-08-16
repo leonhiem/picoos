@@ -1,7 +1,9 @@
 /**
  * dev/seg7.cpp — /dev/leds, /dev/seg7big, /dev/seg7small
  *
- * All three write-only. All three live in one file on purpose: the
+ * /dev/leds, /dev/seg7big, /dev/seg7small are write-only; the per-LED
+ * siblings further down (/dev/leds/<name>) are read/write. All of it
+ * lives in one file on purpose: the
  * 7-segment digits and front-panel LEDs are one physical 74HC595 shift
  * register chain (display.cpp's update_7seg()) -- a single call shifts
  * all 56 bits at once, so there's no way to update just the LEDs
@@ -13,7 +15,10 @@
  * /dev/leds:      write "<name> on|off", one of: aut warm low high
  *                 fail chk man (led_t's 7 named bits -- the hardware
  *                 has 7 wired positions, not 6; worth checking against
- *                 the real board if that doesn't match what's expected)
+ *                 the real board if that doesn't match what's expected).
+ *                 See also /dev/leds/<name> further down -- seven
+ *                 independent read/write siblings, one per bit, same
+ *                 idea as /dev/buttons/<name> alongside /dev/buttons.
  * /dev/seg7big:   write a number, e.g. "36.5" or "365" or "7" --
  *                 up to 3 digits, right-aligned, blank-padded on the
  *                 left. A literal '.' turns the dot on; because of how
@@ -25,6 +30,7 @@
  */
 #include "warmer.h"
 #include "kernel/fs.h"
+#include <cstdio>
 #include <cstring>
 
 static uint8_t big_d[3]   = {SEG_BLANK, SEG_BLANK, SEG_BLANK};
@@ -113,3 +119,61 @@ static const device_t dev_seg7small = {"/dev/seg7small", 0, 0, 0, seg7small_writ
 void leds_register(void)      { fs_register(&dev_leds); }
 void seg7big_register(void)   { fs_register(&dev_seg7big); }
 void seg7small_register(void) { fs_register(&dev_seg7small); }
+
+/* ═══════════════════════════════════════════════════
+   /dev/leds/<name> -- seven independent read/write devices, one per
+   led_t bit, sharing the same `leds` shadow state and flush() as
+   /dev/leds above. Same idea as /dev/buttons/<name> alongside
+   /dev/buttons: address one LED without needing to know or repeat the
+   others' current state in the same write.
+
+   No way to pass a field pointer through device_t's plain function
+   pointers, so these are hand-duplicated one per LED -- same tradeoff
+   as jobs.cpp's job trampolines and dev/buttons.cpp's per-button
+   devices, same reasoning: fine at seven.
+   ═══════════════════════════════════════════════════ */
+static int led_read(uint8_t val, char *buf, int len)
+{
+    return snprintf(buf, len, val ? "on\n" : "off\n");
+}
+
+static int led_write(uint8_t *field, const char *buf, int len)
+{
+    if (len >= 2 && strncmp(buf, "on", 2) == 0)  { *field = 1; flush(); return len; }
+    if (len >= 3 && strncmp(buf, "off", 3) == 0) { *field = 0; flush(); return len; }
+    return -1;
+}
+
+static int aut_read(char *buf, int len)         { return led_read(leds.aut, buf, len); }
+static int aut_write(const char *buf, int len)  { return led_write(&leds.aut, buf, len); }
+static int warm_read(char *buf, int len)        { return led_read(leds.warm, buf, len); }
+static int warm_write(const char *buf, int len) { return led_write(&leds.warm, buf, len); }
+static int low_read(char *buf, int len)         { return led_read(leds.low, buf, len); }
+static int low_write(const char *buf, int len)  { return led_write(&leds.low, buf, len); }
+static int high_read(char *buf, int len)        { return led_read(leds.high, buf, len); }
+static int high_write(const char *buf, int len) { return led_write(&leds.high, buf, len); }
+static int fail_read(char *buf, int len)        { return led_read(leds.fail, buf, len); }
+static int fail_write(const char *buf, int len) { return led_write(&leds.fail, buf, len); }
+static int chk_read(char *buf, int len)         { return led_read(leds.chk, buf, len); }
+static int chk_write(const char *buf, int len)  { return led_write(&leds.chk, buf, len); }
+static int man_read(char *buf, int len)         { return led_read(leds.man, buf, len); }
+static int man_write(const char *buf, int len)  { return led_write(&leds.man, buf, len); }
+
+static const device_t dev_led_aut  = {"/dev/leds/aut",  0, 0, aut_read,  aut_write};
+static const device_t dev_led_warm = {"/dev/leds/warm", 0, 0, warm_read, warm_write};
+static const device_t dev_led_low  = {"/dev/leds/low",  0, 0, low_read,  low_write};
+static const device_t dev_led_high = {"/dev/leds/high", 0, 0, high_read, high_write};
+static const device_t dev_led_fail = {"/dev/leds/fail", 0, 0, fail_read, fail_write};
+static const device_t dev_led_chk  = {"/dev/leds/chk",  0, 0, chk_read,  chk_write};
+static const device_t dev_led_man  = {"/dev/leds/man",  0, 0, man_read,  man_write};
+
+void led_devices_register(void)
+{
+    fs_register(&dev_led_aut);
+    fs_register(&dev_led_warm);
+    fs_register(&dev_led_low);
+    fs_register(&dev_led_high);
+    fs_register(&dev_led_fail);
+    fs_register(&dev_led_chk);
+    fs_register(&dev_led_man);
+}

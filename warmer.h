@@ -105,6 +105,7 @@ void lamp_register(void);
 void buttons_register(void);
 void button_devices_register(void); // /dev/buttons/<name>, dev/buttons.cpp
 void leds_register(void);
+void led_devices_register(void); // /dev/leds/<name>, dev/seg7.cpp
 void seg7big_register(void);
 void seg7small_register(void);
 void alarm_register(void);
