@@ -15,7 +15,9 @@
  */
 #pragma once
 
-#define FS_MAX_DEVICES 16
+#define FS_MAX_DEVICES 32 // 2026-08-16: bumped from 16 after it silently
+                          // dropped /dev/setpoint -- registered 17th, past
+                          // the old cap, with no warning at all. See fs.cpp.
 #define FS_NAME_MAX    32
 
 typedef struct {

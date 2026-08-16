@@ -1,4 +1,5 @@
 #include "fs.h"
+#include <cstdio>
 #include <cstring>
 
 static const device_t *devices[FS_MAX_DEVICES];
@@ -6,7 +7,15 @@ static int device_count = 0;
 
 void fs_register(const device_t *dev)
 {
-    if (device_count >= FS_MAX_DEVICES) return; // TODO: report overflow once we have a console device
+    if (device_count >= FS_MAX_DEVICES) {
+        // Loud on purpose: this exact silent-return used to drop
+        // /dev/setpoint with no trace at all once the table filled up.
+        // main() calls every *_register() before the shell starts, and
+        // stdio_init_all() has already run by then, so this printf is
+        // guaranteed to actually reach the console.
+        printf("fs_register: table full (%d), dropped %s\n", FS_MAX_DEVICES, dev->name);
+        return;
+    }
     devices[device_count++] = dev;
 }
 

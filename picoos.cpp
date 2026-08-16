@@ -139,6 +139,7 @@ int main()
     heater_register();
     relay_register();
     setpoint_register();
+    heaterauto_register();
 
     cat_register();
     echo_register();

@@ -113,6 +113,7 @@ void heater_register(void);
 void relay_register(void);
 void setpoint_register(void);
 void task_setpoint_buttons(void); // registered as a task from main(), like tpo_apply
+void heaterauto_register(void);
 
 // prog/*.cpp -- register each program with kernel/prog.h's registry.
 void cat_register(void);
