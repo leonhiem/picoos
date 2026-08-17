@@ -4,19 +4,16 @@
  * cat /dev/setpoint          -> current value, e.g. "35.0\n"
  * echo 36.5 > /dev/setpoint  -> set directly, clamped to [SETPOINT_MIN, SETPOINT_MAX]
  *
- * Also driven by the physical UP/DOWN buttons, same as the original
- * control loop: task_setpoint_buttons (registered from main(), like
- * tpo_apply) polls button[BUTTON_UP]/button[BUTTON_DOWN] every
- * SETPOINT_POLL_MS and nudges the value by +/-SETPOINT_STEP.
+ * No longer wired to the UP/DOWN buttons directly -- that used to be a
+ * dedicated task_setpoint_buttons registered from main(), hardcoding
+ * "UP/DOWN always adjusts the setpoint." Replaced by prog/adjust.cpp,
+ * a generic program you run from the command line to decide what
+ * UP/DOWN adjusts and under what condition, e.g.:
  *
- * Deliberately reads button[]/buttons.cpp directly rather than going
- * through /dev/buttons: that device's read() is read-and-clear for
- * *every* pending button at once (see its own header comment), so
- * polling it here for up/down would also silently steal mute/manual/
- * start/lamp events before any other consumer -- e.g. a manual
- * `cat /dev/buttons` -- ever saw them. Touching just the two flags
- * this cares about avoids that, at the cost of one more file besides
- * buttons.cpp/dev/buttons.cpp knowing button[] exists.
+ *   adjust /dev/heaterauto /dev/setpoint /dev/percent 0.5 &
+ *
+ * This device now only stores and clamps the value; it doesn't know or
+ * care what's driving it.
  */
 #include "warmer.h"
 #include "kernel/fs.h"
@@ -26,8 +23,6 @@
 #define SETPOINT_MIN     30.0f
 #define SETPOINT_MAX     39.0f
 #define SETPOINT_DEF     35.0f
-#define SETPOINT_STEP     0.5f
-#define SETPOINT_POLL_MS   150
 
 static float setpoint = SETPOINT_DEF;
 
@@ -69,10 +64,4 @@ static const device_t dev_setpoint = {
 void setpoint_register(void)
 {
     fs_register(&dev_setpoint);
-}
-
-void task_setpoint_buttons(void)
-{
-    if (button[BUTTON_UP])   { button[BUTTON_UP]   = false; setpoint += SETPOINT_STEP; clamp(); }
-    if (button[BUTTON_DOWN]) { button[BUTTON_DOWN] = false; setpoint -= SETPOINT_STEP; clamp(); }
 }

@@ -113,8 +113,8 @@ void current_register(void);
 void heater_register(void);
 void relay_register(void);
 void setpoint_register(void);
-void task_setpoint_buttons(void); // registered as a task from main(), like tpo_apply
 void heaterauto_register(void);
+void percent_register(void);
 
 // prog/*.cpp -- register each program with kernel/prog.h's registry.
 void cat_register(void);
@@ -122,6 +122,7 @@ void echo_register(void);
 void thresh_register(void);
 void hyst_register(void);
 void toggle_register(void);
+void adjust_register(void);
 void ls_register(void);
 
 // shell.cpp

@@ -29,7 +29,8 @@
 #pragma once
 
 #define JOB_MAX_STAGES 4
-#define JOB_MAX_ARGS   4
+#define JOB_MAX_ARGS   6 // slot 0 is the program name itself; bumped from 4
+                         // for adjust's <gate> <target-on> <target-off> <step>
 #define JOB_TOK_MAX    24
 #define MAX_JOBS       4
 #define STAGE_BUF      512 // ls's own listing needs ~300 bytes already and grows

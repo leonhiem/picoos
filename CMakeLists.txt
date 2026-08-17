@@ -27,11 +27,13 @@ add_executable(picoos
     dev/relay.cpp
     dev/setpoint.cpp
     dev/heaterauto.cpp
+    dev/percent.cpp
     prog/cat.cpp
     prog/echo.cpp
     prog/thresh.cpp
     prog/hyst.cpp
     prog/toggle.cpp
+    prog/adjust.cpp
     prog/ls.cpp
 )
 add_subdirectory("../pico-onewire" pico_one_wire)
