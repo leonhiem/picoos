@@ -149,6 +149,7 @@ int main()
     hyst_register();
     toggle_register();
     adjust_register();
+    follow_register();
     ls_register();
     jobs_init();
 

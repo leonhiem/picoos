@@ -34,6 +34,7 @@ add_executable(picoos
     prog/hyst.cpp
     prog/toggle.cpp
     prog/adjust.cpp
+    prog/follow.cpp
     prog/ls.cpp
 )
 add_subdirectory("../pico-onewire" pico_one_wire)

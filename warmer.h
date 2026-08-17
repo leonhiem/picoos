@@ -123,6 +123,7 @@ void thresh_register(void);
 void hyst_register(void);
 void toggle_register(void);
 void adjust_register(void);
+void follow_register(void);
 void ls_register(void);
 
 // shell.cpp
