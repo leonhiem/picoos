@@ -170,7 +170,11 @@ void task_shell(void)
                 line_len--;
                 printf("\b \b");
             }
-        } else if (line_len < LINE_MAX - 1) {
+        } else if (c >= 0x20 && c < 0x7f && line_len < LINE_MAX - 1) {
+            // Printable ASCII only -- silently drop anything else (e.g.
+            // stray bytes from USB CDC enumeration/terminal noise right
+            // at connect time, which is exactly what showed up as a
+            // garbage glyph right after the boot prompt).
             line[line_len++] = (char)c;
             putchar(c);
         }
