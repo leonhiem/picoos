@@ -59,7 +59,7 @@ Connect a serial terminal to the board. You'll get a `%` prompt (an
 `rc`/Plan 9 nod):
 
 ```
-picoos -- type 'ls' to see /dev and bin/, 'jobs'/'kill' to manage background pipelines
+picoos -- type 'ls' to see /dev and bin/, 'jobs'/'kill' to manage background pipelines, 'script'/'run' to record and replay command sequences
 %
 ```
 
@@ -83,6 +83,22 @@ stage := progname [arg...]
 - `kill %<id>` — stop one.
 - `sleep <ms>` — pause the shell (doesn't waste CPU; everything else
   keeps running).
+- `script <name>` — capture the lines you type next into a named
+  script, until a line containing just `.`. Prompt becomes `> ` while
+  capturing.
+- `run <name>` — replay a captured script, one line per shell tick.
+  `sleep` inside a script really waits (the same resumable flag as a
+  typed `sleep`), and `&` inside a script backgrounds a job exactly
+  like typing it directly.
+- `scripts` — list captured script names.
+
+`jobs`, `kill`, `sleep`, `script`, `run`, and `scripts` are **shell
+builtins**, not entries in the device/program namespace — same as
+`cd`/`export` in a real Unix shell not showing up on `$PATH`. They
+touch the shell's own state rather than being a text-in/text-out
+program, so they intentionally don't appear in `ls`'s listing below.
+Scripts are RAM-only for now (this board has no EEPROM) — they don't
+survive a reboot, and there's no boot-time auto-run yet.
 
 Backspace works. Unknown commands, bad paths, and rejected writes
 print a short error instead of doing something silently wrong.
@@ -156,6 +172,16 @@ kill %1
 Pause without wasting CPU (everything else keeps running):
 ```
 sleep 3000
+```
+
+Record and replay a sequence of commands (RAM-only, lost on reboot):
+```
+script demo
+> echo on > /dev/leds/chk
+> sleep 1000
+> echo off > /dev/leds/chk
+> .
+run demo
 ```
 
 ## Status: what actually drives the heater right now

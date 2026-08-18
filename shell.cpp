@@ -9,11 +9,11 @@
  *
  * Grammar: stage [| stage ...] [< path] [> path] [&]
  *   stage := progname [arg...]
- * `jobs`, `kill %<id>`, and `sleep <ms>` are true shell builtins (they
- * touch the shell's own state, not a text-in/text-out stream);
- * everything else -- including ls now -- is a program (kernel/prog.h)
- * run through the same pipeline machinery (jobs.h), foreground or
- * backgrounded.
+ * `jobs`, `kill %<id>`, `sleep <ms>`, and `script`/`run`/`scripts` (see
+ * below) are true shell builtins (they touch the shell's own state,
+ * not a text-in/text-out stream); everything else -- including ls now
+ * -- is a program (kernel/prog.h) run through the same pipeline
+ * machinery (jobs.h), foreground or backgrounded.
  *
  * `sleep` doesn't block -- nothing in this kernel ever does. It just
  * remembers a wake time; task_shell() checks it at the top of every
@@ -25,6 +25,34 @@
  * Characters typed during a sleep aren't lost (or echoed) until it
  * ends -- they just sit in the USB stack's own RX buffer until
  * getchar_timeout_us() starts being called again.
+ *
+ * `script <name>` / `run <name>` -- named, storable sequences of shell
+ * lines, the small step toward real scripts. `script <name>` puts the
+ * shell into capture mode: the prompt changes to `> ` and every line
+ * typed gets appended to that script instead of being run, until a
+ * line containing just `.` ends it (an old ed-style terminator --
+ * chosen over inventing `>>`/heredoc grammar). `scripts` lists what's
+ * stored.
+ *
+ * `run <name>` replays the stored lines through the same dispatch()
+ * every typed line goes through -- but one line per task_shell() tick,
+ * not all at once, and it is genuinely driven by the same resumable
+ * `sleeping` flag `sleep` already uses: if a script line is itself
+ * `sleep <ms>`, run_step() (below) simply doesn't get called again
+ * until that sleep's wake time has passed, same as if you'd typed it
+ * by hand. This isn't optional plumbing -- a first version dispatched
+ * every line in one synchronous loop, which meant `sleep` inside a
+ * script did nothing at all (it only ever sets a flag; something else
+ * has to actually wait on it), so a heater or lamp step "after" a
+ * sleep line fired immediately instead of after the delay.
+ *
+ * Storage is a small RAM table (`scripts[SCRIPT_MAX]`) -- deliberately
+ * RAM-only for now: this board has no EEPROM, so nothing survives a
+ * power cycle yet, and there's no boot-time auto-run. When persistent
+ * storage exists (onboard flash, or a real EEPROM on a future PCB),
+ * the plan is to swap what backs `scripts[]` without changing
+ * `script`/`run`/`scripts` themselves -- same reasoning as every
+ * device in dev/*.cpp, just not wired to a device path (yet).
  */
 #include "kernel/fs.h"
 #include "jobs.h"
@@ -36,12 +64,33 @@
 #define LINE_MAX    96
 #define MAX_TOKENS  20
 
+#define SCRIPT_MAX       4
+#define SCRIPT_NAME_MAX  16
+#define SCRIPT_TEXT_MAX  512  // matches jobs.h's STAGE_BUF; a handful of lines
+
+typedef struct {
+    bool used;
+    char name[SCRIPT_NAME_MAX];
+    char text[SCRIPT_TEXT_MAX]; // lines joined by '\n', nul-terminated
+} script_t;
+
+static script_t scripts[SCRIPT_MAX];
+
 static bool sleeping = false;
 static absolute_time_t wake_time;
 
+static bool capturing = false;
+static char capture_name[SCRIPT_NAME_MAX];
+static char capture_buf[SCRIPT_TEXT_MAX];
+static int  capture_len = 0;
+
+static bool running = false;      // a script is being replayed, one line per tick
+static char run_buf[SCRIPT_TEXT_MAX];
+static int  run_pos = 0;          // offset of the next unread line in run_buf
+
 static void print_prompt(void)
 {
-    printf("%% ");
+    printf(capturing ? "> " : "%% ");
 }
 
 static int tokenize(char *line, char *tokens[MAX_TOKENS])
@@ -93,6 +142,46 @@ static bool parse_pipeline(char **tok, int ntok, pipeline_t *p, bool *background
     return true;
 }
 
+// Appends one typed line to the script currently being captured, or
+// finalizes it on a lone ".". Not called while a script is running --
+// run replays through dispatch(), never through capture.
+static void capture_line(const char *line)
+{
+    if (strcmp(line, ".") == 0) {
+        capture_buf[capture_len] = '\0';
+        int slot = -1;
+        for (int i = 0; i < SCRIPT_MAX; i++) {
+            if (scripts[i].used && strcmp(scripts[i].name, capture_name) == 0) { slot = i; break; }
+        }
+        if (slot < 0) {
+            for (int i = 0; i < SCRIPT_MAX; i++) {
+                if (!scripts[i].used) { slot = i; break; }
+            }
+        }
+        if (slot < 0) {
+            printf("script: table full (max %d), '%s' not saved\n", SCRIPT_MAX, capture_name);
+        } else {
+            strncpy(scripts[slot].name, capture_name, SCRIPT_NAME_MAX - 1);
+            scripts[slot].name[SCRIPT_NAME_MAX - 1] = '\0';
+            strncpy(scripts[slot].text, capture_buf, SCRIPT_TEXT_MAX - 1);
+            scripts[slot].text[SCRIPT_TEXT_MAX - 1] = '\0';
+            scripts[slot].used = true;
+            printf("script '%s' saved (%d bytes)\n", capture_name, capture_len);
+        }
+        capturing = false;
+        return;
+    }
+
+    int llen = strlen(line);
+    if (capture_len + llen + 1 >= SCRIPT_TEXT_MAX) { // +1 for the '\n' this line adds
+        printf("script: buffer full, line dropped\n");
+        return;
+    }
+    memcpy(capture_buf + capture_len, line, llen);
+    capture_len += llen;
+    capture_buf[capture_len++] = '\n';
+}
+
 static void dispatch(char *line)
 {
     char *tok[MAX_TOKENS];
@@ -118,6 +207,37 @@ static void dispatch(char *line)
         sleeping = true;
         return; // no prompt yet -- task_shell() prints one once awake
     }
+    if (strcmp(tok[0], "script") == 0) {
+        if (ntok < 2) { printf("usage: script <name>\n"); return; }
+        strncpy(capture_name, tok[1], SCRIPT_NAME_MAX - 1);
+        capture_name[SCRIPT_NAME_MAX - 1] = '\0';
+        capture_len = 0;
+        capturing = true;
+        printf("capturing '%s' -- end with a line containing just '.'\n", capture_name);
+        return; // prompt becomes "> " until capture ends
+    }
+    if (strcmp(tok[0], "scripts") == 0) {
+        bool any = false;
+        for (int i = 0; i < SCRIPT_MAX; i++) {
+            if (scripts[i].used) { printf("%s\n", scripts[i].name); any = true; }
+        }
+        if (!any) printf("no scripts\n");
+        return;
+    }
+    if (strcmp(tok[0], "run") == 0) {
+        if (ntok < 2) { printf("usage: run <name>\n"); return; }
+        if (running) { printf("run: already running a script\n"); return; }
+        int slot = -1;
+        for (int i = 0; i < SCRIPT_MAX; i++) {
+            if (scripts[i].used && strcmp(scripts[i].name, tok[1]) == 0) { slot = i; break; }
+        }
+        if (slot < 0) { printf("run: no such script '%s'\n", tok[1]); return; }
+        strncpy(run_buf, scripts[slot].text, SCRIPT_TEXT_MAX - 1);
+        run_buf[SCRIPT_TEXT_MAX - 1] = '\0';
+        run_pos = 0;
+        running = true;
+        return; // task_shell() drives it from here, one line per tick -- see run_step()
+    }
     if (tok[0][0] == '\0') return;
     if (strcmp(tok[0], "|") == 0 || strcmp(tok[0], ">") == 0) {
         printf("empty pipeline\n");
@@ -138,6 +258,25 @@ static void dispatch(char *line)
     }
 }
 
+// Runs exactly one line of the in-progress script, advancing run_pos
+// past it, and clears `running` once the script is out of lines.
+// Called at most once per task_shell() tick -- if the line dispatches
+// to `sleep`, this simply isn't called again until that sleep's wake
+// time passes (same top-of-function check `sleeping` already gets),
+// so a script's sleep behaves exactly like a typed one.
+static void run_step(void)
+{
+    if (run_buf[run_pos] == '\0') { running = false; return; }
+
+    char *ln = run_buf + run_pos;
+    char *nl = strchr(ln, '\n');
+    if (nl) { *nl = '\0'; run_pos = (int)(nl - run_buf) + 1; }
+    else     { run_pos += strlen(ln); } // last line (shouldn't lack a trailing '\n', but safe)
+
+    printf("%% %s\n", ln);
+    dispatch(ln);
+}
+
 void task_shell(void)
 {
     static char line[LINE_MAX];
@@ -145,7 +284,7 @@ void task_shell(void)
     static bool banner_shown = false;
 
     if (!banner_shown) {
-        printf("\npicoos -- type 'ls' to see /dev and bin/, 'jobs'/'kill' to manage background pipelines\n");
+        printf("\npicoos -- type 'ls' to see /dev and bin/, 'jobs'/'kill' to manage background pipelines, 'script'/'run' to record and replay command sequences\n");
         print_prompt();
         banner_shown = true;
     }
@@ -153,8 +292,15 @@ void task_shell(void)
     if (sleeping) {
         if (absolute_time_diff_us(get_absolute_time(), wake_time) > 0) return; // not yet
         sleeping = false;
-        print_prompt();
-        // fall through: process any input that arrived while asleep
+        if (!running) print_prompt(); // a script's own sleep resumes silently, no interactive prompt
+        // fall through: either process input that arrived while asleep,
+        // or (if running) let the block below continue the script now
+    }
+
+    if (running) {
+        run_step();
+        if (!running && !sleeping) print_prompt(); // script just finished, and didn't end mid-sleep
+        return; // script lines advance one per tick; don't also read keyboard input this tick
     }
 
     int c;
@@ -162,9 +308,11 @@ void task_shell(void)
         if (c == '\r' || c == '\n') {
             printf("\n");
             line[line_len] = '\0';
-            dispatch(line);
+            if (capturing) capture_line(line);
+            else dispatch(line);
             line_len = 0;
-            if (!sleeping) print_prompt(); // sleep set this; its own wake-up prints the prompt instead
+            // sleep/run set their own flag; each prints its own prompt once done instead
+            if (!sleeping && !running) print_prompt();
         } else if (c == 8 || c == 127) { // backspace / DEL
             if (line_len > 0) {
                 line_len--;
