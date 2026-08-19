@@ -28,6 +28,7 @@ add_executable(picoos
     dev/setpoint.cpp
     dev/heaterauto.cpp
     dev/percent.cpp
+    dev/pid.cpp
     prog/cat.cpp
     prog/echo.cpp
     prog/thresh.cpp
@@ -35,6 +36,8 @@ add_executable(picoos
     prog/toggle.cpp
     prog/adjust.cpp
     prog/follow.cpp
+    prog/pid.cpp
+    prog/monitor.cpp
     prog/ls.cpp
 )
 add_subdirectory("../pico-onewire" pico_one_wire)

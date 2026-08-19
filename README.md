@@ -8,8 +8,9 @@ task scheduler, a device namespace where hardware is just files, an
 interactive shell, and pipes to wire small programs and devices
 together.
 
-No PID controller. No `ioctl()`. Everything is a file: `open`,
-`close`, `read`, `write`. Small pieces, composed from the command line.
+No hardcoded control loop. No `ioctl()`. Everything is a file: `open`,
+`close`, `read`, `write`. Small pieces, composed from the command line
+— PID included: it's `bin/pid`, one more program, not a special case.
 
 ## Philosophy
 
@@ -17,9 +18,10 @@ No PID controller. No `ioctl()`. Everything is a file: `open`,
   `/dev/heater`, ...) and small programs (`bin/cat`, `bin/thresh`,
   ...) are both just named, `open`able things — `ls` lists them
   together, in one namespace.
-- **The namespace is the wiring.** There's no PID loop and no plan to
-  hardcode one. Control behavior is built by piping small pieces
-  together from the shell, e.g. a live thermostat is
+- **The namespace is the wiring.** Nothing is a hardcoded control
+  loop, not even PID (`bin/pid`, tunable live through `/dev/pid/*`).
+  Control behavior is built by piping small pieces together from the
+  shell, e.g. a live thermostat is
   `cat /dev/skintemp | hyst /dev/setpoint 1.0 > /dev/heater &` — not a
   function anywhere in the source.
 - **Cooperative, not preemptive.** One core, one scheduler
@@ -59,7 +61,11 @@ Connect a serial terminal to the board. You'll get a `%` prompt (an
 `rc`/Plan 9 nod):
 
 ```
-picoos -- type 'ls' to see /dev and bin/, 'jobs'/'kill' to manage background pipelines, 'script'/'run' to record and replay command sequences
+picoos
+  ls            list /dev and bin/
+  jobs, kill    manage background pipelines
+  script, run   record and replay command sequences
+  watch         repeat a pipeline every <ms>, Ctrl-C to stop
 %
 ```
 
@@ -91,14 +97,27 @@ stage := progname [arg...]
   typed `sleep`), and `&` inside a script backgrounds a job exactly
   like typing it directly.
 - `scripts` — list captured script names.
+- `watch <ms> <stage> [| stage ...] [< path]` — repeats a pipeline in
+  the foreground every `<ms>`, printing every time, until **Ctrl-C**
+  stops it. This is real Unix's own `watch` — the right tool for
+  something like a status monitor, which you actually want to *watch*
+  and then stop, not a quiet background job you'd have to remember a
+  `kill %<id>` for. `&` inside a watched pipeline is rejected — watch
+  already *is* the repeat.
 
-`jobs`, `kill`, `sleep`, `script`, `run`, and `scripts` are **shell
-builtins**, not entries in the device/program namespace — same as
-`cd`/`export` in a real Unix shell not showing up on `$PATH`. They
+`jobs`, `kill`, `sleep`, `script`, `run`, `scripts`, and `watch` are
+**shell builtins**, not entries in the device/program namespace — same
+as `cd`/`export` in a real Unix shell not showing up on `$PATH`. They
 touch the shell's own state rather than being a text-in/text-out
 program, so they intentionally don't appear in `ls`'s listing below.
 Scripts are RAM-only for now (this board has no EEPROM) — they don't
 survive a reboot, and there's no boot-time auto-run yet.
+
+Ctrl-C only interrupts `watch` — while watching, every byte is
+actively read and discarded except Ctrl-C, which is a deliberate
+behavior change from the shell's normal "nothing typed is ever lost"
+rule (used by `sleep`/`run`, unaffected). Fine for a state that starts
+fresh with nothing relying on it yet.
 
 Backspace works. Unknown commands, bad paths, and rejected writes
 print a short error instead of doing something silently wrong.
@@ -121,7 +140,13 @@ print a short error instead of doing something silently wrong.
 | `/dev/seg7small` | write | Small 7-segment display. Same format. |
 | `/dev/setpoint` | read/write | Temperature setpoint, °C, clamped `[30, 39]`. |
 | `/dev/percent` | read/write | Manual heater power, `0`-`100`, clamped. The manual-mode counterpart to `/dev/setpoint`. |
-| `/dev/heaterauto` | read/write | `on` = auto/PID control, `off` = manual. Only stores the mode right now — see [Status](#status-what-actually-drives-the-heater-right-now). |
+| `/dev/heaterauto` | read/write | `on` = auto/PID control, `off` = manual. Gates both `pid`'s stepping and which source `follow` forwards to `/dev/heater`. |
+| `/dev/pid/kp` | read/write | PID proportional gain, %/°C. Default `3.0`. |
+| `/dev/pid/ti` | read/write | PID integral time, seconds. Default `200.0`. Floored at `1.0` — it's a divisor in the formula. |
+| `/dev/pid/td` | read/write | PID derivative time, seconds. Default `5.0`. |
+| `/dev/pid/dt` | read/write | PID sample period, seconds. Default `1.0`. Floored at `0.1` — also a divisor. |
+| `/dev/pid/integral` | read/write | Live integral term. Watch it while tuning; `echo 0 >` resets windup. |
+| `/dev/pidout` | read/write | PID's last computed output, `0`-`100`. What `follow` forwards to `/dev/heater` in auto mode. |
 
 ## Programs (`bin/...`, run from the shell as bare names)
 
@@ -134,7 +159,9 @@ print a short error instead of doing something silently wrong.
 | `hyst` | `hyst <threshold> <band>` | Like `thresh`, but with a `<band>`-wide hysteresis dead zone — no chattering right at the threshold. **Heating polarity**: `on` when cold, `off` when warm — opposite of `thresh`. |
 | `toggle` | `toggle <button-device> <target-device>` | If the button was pressed since last check, flip the target's `on`/`off` state. |
 | `adjust` | `adjust <gate-device> <target-if-on> <target-if-off> <step>` | UP/DOWN steps whichever target the gate device currently selects. |
-| `follow` | `follow <gate-device> <on\|off> <source> <target>` | While the gate matches, copy source's value to target every tick; otherwise hold target at `0`. |
+| `follow` | `follow <gate-device> <source-if-on> <source-if-off> <target>` | Every tick, copies whichever source the gate currently selects to target. The read-side twin of `adjust`'s shape. |
+| `pid` | `pid <gate-device> <setpoint-device-or-literal>` | Measurement piped in. Steps once per `/dev/pid/dt` seconds, only while the gate reads `on`; writes its output to `/dev/pidout`. See [Status](#status-what-actually-drives-the-heater-right-now). |
+| `monitor` | `monitor` | One status line: mode, setpoint, skin temp, current, pidout, percent, integral. Repeats its column header every 10 lines. Meant to run under `watch`, not `&`. |
 
 ## Recipes
 
@@ -160,7 +187,15 @@ Make the physical buttons do things:
 toggle /dev/buttons/lamp /dev/lamp &                 # LAMP button toggles the baby-light
 toggle /dev/buttons/manual /dev/heaterauto &          # MANUAL button toggles auto/manual mode
 adjust /dev/heaterauto /dev/setpoint /dev/percent 0.5 &   # UP/DOWN adjusts whichever the mode selects
-follow /dev/heaterauto off /dev/percent /dev/heater &     # manual mode's /dev/percent actually drives the heater
+```
+
+Full auto/manual heater control — PID computes continuously but only
+steps while `/dev/heaterauto` is `on`; `follow` is the single arbiter
+that decides which of the two live sources actually reaches the real
+heater:
+```
+cat /dev/skintemp | pid /dev/heaterauto /dev/setpoint > /dev/pidout &
+follow /dev/heaterauto /dev/pidout /dev/percent /dev/heater &
 ```
 
 Manage what's running:
@@ -184,18 +219,32 @@ script demo
 run demo
 ```
 
+Watch the warmer's status once a second, Ctrl-C to stop:
+```
+watch 1000 monitor
+```
+
+Or watch any single value directly, without a dedicated program:
+```
+watch 500 cat /dev/skintemp
+```
+
 ## Status: what actually drives the heater right now
 
-`/dev/heaterauto` only stores and reports auto/manual mode. `follow`
-(above) wires manual mode's `/dev/percent` to the real heater. Auto
-mode doesn't drive anything yet — no PID loop exists, and building one
-is explicitly deferred ("for another day"). The natural next program
-would reuse the exact same `follow` shape once a real auto-mode source
-exists:
+Both sides are wired: `follow` (above) is the sole writer to
+`/dev/heater`, forwarding `/dev/pidout` while `/dev/heaterauto` is
+`on` and `/dev/percent` while it's `off`. `prog/pid.cpp` is PID alone
+— no feed-forward table, no phase state machine (both were babywarmer
+concerns, deliberately not brought back). It self-gates on
+`/dev/heaterauto` for anti-windup (freezes its integral, not just its
+output, while inactive) and self-paces `/dev/pid/dt` independent of
+the job scheduler's own 150ms poll interval, so a background `&` job
+is enough — nothing needs to start or stop it as phases change later,
+only the gate's value needs to change.
 
-```
-follow /dev/heaterauto on <auto-source> /dev/heater &
-```
+Not yet built: the phase state machine itself (PHASE1A/COAST/PHASE2,
+safety trips, sensor-drop detection) — a separate, later concern, not
+this control law's job.
 
 ## Architecture, briefly
 

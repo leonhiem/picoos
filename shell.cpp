@@ -53,6 +53,27 @@
  * the plan is to swap what backs `scripts[]` without changing
  * `script`/`run`/`scripts` themselves -- same reasoning as every
  * device in dev/*.cpp, just not wired to a device path (yet).
+ *
+ * `watch <ms> <stage> [| stage ...] [< path]` -- repeats a pipeline in
+ * the foreground every <ms>, printing every time, until Ctrl-C (ASCII
+ * ETX, 0x03). This is real Unix's own `watch`, not a new idea: for
+ * something like a monitor line you actually want to watch and then
+ * stop watching, backgrounding it with `&` is the wrong tool -- a
+ * background job stays quiet (no `>` redirect means no spam, on
+ * purpose, for things like `toggle &`), which is exactly backwards for
+ * a monitor that's supposed to print every tick, and the only way to
+ * stop a background job is `kill %<id>`, remembering an id, instead of
+ * the muscle-memory Ctrl-C this exists to give back. `&` inside a
+ * watched pipeline is rejected -- watch already *is* the repeat.
+ *
+ * Ctrl-C is scoped to `watch` alone, not generalized to interrupt
+ * `sleep`/`run` too: while watching, every byte is actively polled and
+ * discarded except 0x03, which is a real, deliberate behavior change
+ * from the normal loop (nothing is preserved for after, the same way
+ * real `watch` doesn't queue up your keystrokes) -- fine to introduce
+ * for a state that starts brand new in this commit, not something to
+ * retrofit onto sleep/run's existing, already-relied-on "nothing
+ * typed is ever lost" contract.
  */
 #include "kernel/fs.h"
 #include "jobs.h"
@@ -66,7 +87,10 @@
 
 #define SCRIPT_MAX       4
 #define SCRIPT_NAME_MAX  16
-#define SCRIPT_TEXT_MAX  512  // matches jobs.h's STAGE_BUF; a handful of lines
+#define SCRIPT_TEXT_MAX  512  // a handful of lines' worth; independent of
+                              // jobs.h's STAGE_BUF -- different concern (script
+                              // storage, not ls's output), just happened to
+                              // start at the same number
 
 typedef struct {
     bool used;
@@ -87,6 +111,11 @@ static int  capture_len = 0;
 static bool running = false;      // a script is being replayed, one line per tick
 static char run_buf[SCRIPT_TEXT_MAX];
 static int  run_pos = 0;          // offset of the next unread line in run_buf
+
+static bool watching = false;
+static pipeline_t watch_pipeline;
+static uint32_t watch_interval_ms;
+static absolute_time_t watch_next;
 
 static void print_prompt(void)
 {
@@ -238,6 +267,20 @@ static void dispatch(char *line)
         running = true;
         return; // task_shell() drives it from here, one line per tick -- see run_step()
     }
+    if (strcmp(tok[0], "watch") == 0) {
+        if (ntok < 3) { printf("usage: watch <ms> <stage> [| stage ...] [< path]\n"); return; }
+        int ms = atoi(tok[1]);
+        if (ms < 50) ms = 50; // sane floor -- also protects against a typo like "watch heater"
+        bool background;
+        if (!parse_pipeline(tok + 2, ntok - 2, &watch_pipeline, &background)) return;
+        if (watch_pipeline.stages[0].argc == 0) return;
+        if (background) printf("watch: '&' ignored -- watch already repeats on its own\n");
+        watch_interval_ms = (uint32_t)ms;
+        watch_next = get_absolute_time(); // fire the first line immediately
+        watching = true;
+        printf("watching every %dms -- Ctrl-C to stop\n", ms);
+        return; // no normal prompt -- watch prints its own lines until stopped
+    }
     if (tok[0][0] == '\0') return;
     if (strcmp(tok[0], "|") == 0 || strcmp(tok[0], ">") == 0) {
         printf("empty pipeline\n");
@@ -284,7 +327,11 @@ void task_shell(void)
     static bool banner_shown = false;
 
     if (!banner_shown) {
-        printf("\npicoos -- type 'ls' to see /dev and bin/, 'jobs'/'kill' to manage background pipelines, 'script'/'run' to record and replay command sequences\n");
+        printf("\npicoos\n");
+        printf("  ls            list /dev and bin/\n");
+        printf("  jobs, kill    manage background pipelines\n");
+        printf("  script, run   record and replay command sequences\n");
+        printf("  watch         repeat a pipeline every <ms>, Ctrl-C to stop\n");
         print_prompt();
         banner_shown = true;
     }
@@ -303,6 +350,25 @@ void task_shell(void)
         return; // script lines advance one per tick; don't also read keyboard input this tick
     }
 
+    if (watching) {
+        if (absolute_time_diff_us(get_absolute_time(), watch_next) <= 0) {
+            pipeline_run_once(&watch_pipeline, true); // foreground: always prints
+            watch_next = make_timeout_time_ms(watch_interval_ms);
+        }
+        int c;
+        while ((c = getchar_timeout_us(0)) != PICO_ERROR_TIMEOUT) {
+            if (c == 3) { // Ctrl-C
+                watching = false;
+                printf("(watch stopped)\n");
+                print_prompt();
+                break;
+            }
+            // anything else typed while watching is discarded, on purpose --
+            // see the header comment for why this doesn't preserve type-ahead
+        }
+        return; // watching owns this tick; don't also run the normal command loop
+    }
+
     int c;
     while ((c = getchar_timeout_us(0)) != PICO_ERROR_TIMEOUT) {
         if (c == '\r' || c == '\n') {
@@ -311,8 +377,8 @@ void task_shell(void)
             if (capturing) capture_line(line);
             else dispatch(line);
             line_len = 0;
-            // sleep/run set their own flag; each prints its own prompt once done instead
-            if (!sleeping && !running) print_prompt();
+            // sleep/run/watch set their own flag; each prints its own prompt once done instead
+            if (!sleeping && !running && !watching) print_prompt();
         } else if (c == 8 || c == 127) { // backspace / DEL
             if (line_len > 0) {
                 line_len--;

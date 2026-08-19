@@ -115,6 +115,7 @@ void relay_register(void);
 void setpoint_register(void);
 void heaterauto_register(void);
 void percent_register(void);
+void pid_devices_register(void); // /dev/pid/{kp,ti,td,dt,integral}, /dev/pidout, dev/pid.cpp
 
 // prog/*.cpp -- register each program with kernel/prog.h's registry.
 void cat_register(void);
@@ -124,6 +125,8 @@ void hyst_register(void);
 void toggle_register(void);
 void adjust_register(void);
 void follow_register(void);
+void pid_register(void);
+void monitor_register(void);
 void ls_register(void);
 
 // shell.cpp

@@ -142,6 +142,7 @@ int main()
     setpoint_register();
     heaterauto_register();
     percent_register();
+    pid_devices_register();
 
     cat_register();
     echo_register();
@@ -150,6 +151,8 @@ int main()
     toggle_register();
     adjust_register();
     follow_register();
+    pid_register();
+    monitor_register();
     ls_register();
     jobs_init();
 

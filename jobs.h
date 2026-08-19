@@ -33,10 +33,15 @@
                          // for adjust's <gate> <target-on> <target-off> <step>
 #define JOB_TOK_MAX    24
 #define MAX_JOBS       4
-#define STAGE_BUF      512 // ls's own listing needs ~300 bytes already and grows
-                            // with every device/program added -- 256 silently
-                            // truncated it, which is what surfaced this whole
-                            // class of snprintf-overcounting bug in the first place
+#define STAGE_BUF     1024 // ls's own listing grows with every device/program
+                            // added -- 256 silently truncated it once (the bug
+                            // that surfaced the whole snprintf-overcounting
+                            // class of fix), then 512 hit the same wall again,
+                            // cleanly this time (the fixed ls just stops rather
+                            // than corrupt anything), once dev/pid.cpp's six
+                            // devices pushed the real listing to 538 bytes.
+                            // Sized with real headroom this time instead of
+                            // matching the count exactly.
 #define JOB_POLL_MS    150
 
 typedef struct {
