@@ -127,6 +127,7 @@ print a short error instead of doing something silently wrong.
 | Device | R/W | What it does |
 |---|---|---|
 | `/dev/skintemp` | read | Live skin-temperature reading (ADS1115/NTC), °C. Fresh value every read. |
+| `/dev/ambient` | read | Live room-temperature reading, same ADS1115, other differential channel. |
 | `/dev/current` | read | Live heater current-sense ADC, raw counts, averaged over 8 samples. |
 | `/dev/buttons` | read | Names of buttons pressed since last read (e.g. `up down`), read-and-clear, **all buttons at once**. |
 | `/dev/buttons/<name>` | read | One button only (`up`, `down`, `mute`, `manual`, `start`, `lamp`), read-and-clear, independent of the others. |
@@ -140,13 +141,17 @@ print a short error instead of doing something silently wrong.
 | `/dev/seg7small` | write | Small 7-segment display. Same format. |
 | `/dev/setpoint` | read/write | Temperature setpoint, °C, clamped `[30, 39]`. |
 | `/dev/percent` | read/write | Manual heater power, `0`-`100`, clamped. The manual-mode counterpart to `/dev/setpoint`. |
-| `/dev/heaterauto` | read/write | `on` = auto/PID control, `off` = manual. Gates both `pid`'s stepping and which source `follow` forwards to `/dev/heater`. |
+| `/dev/heaterauto` | read/write | `on` = auto control, `off` = manual. Gates which source `follow` forwards to `/dev/heater`; `phase` forces `/dev/state` to `idle` whenever this isn't `on`. |
 | `/dev/pid/kp` | read/write | PID proportional gain, %/°C. Default `3.0`. |
 | `/dev/pid/ti` | read/write | PID integral time, seconds. Default `200.0`. Floored at `1.0` — it's a divisor in the formula. |
 | `/dev/pid/td` | read/write | PID derivative time, seconds. Default `5.0`. |
 | `/dev/pid/dt` | read/write | PID sample period, seconds. Default `1.0`. Floored at `0.1` — also a divisor. |
 | `/dev/pid/integral` | read/write | Live integral term. Watch it while tuning; `echo 0 >` resets windup. |
-| `/dev/pidout` | read/write | PID's last computed output, `0`-`100`. What `follow` forwards to `/dev/heater` in auto mode. |
+| `/dev/pid/prevmeas` | read/write | Last measurement (derivative-on-measurement bookkeeping). Seeded by `phase` on each transition into `pid`. |
+| `/dev/pidout` | read/write | PID's last computed output, `0`-`100`. |
+| `/dev/state` | read/write | Phase machine's current phase: `idle`, `boost`, `coast`, `pid`, or `safe`. Written only by `phase`. |
+| `/dev/autopower` | read/write | Whatever the active phase says heater power should be. What `follow` forwards to `/dev/heater` in auto mode. |
+| `/dev/safepower` | read/write | Safe mode's lookup-table output, from `safelut`. |
 
 ## Programs (`bin/...`, run from the shell as bare names)
 
@@ -160,8 +165,11 @@ print a short error instead of doing something silently wrong.
 | `toggle` | `toggle <button-device> <target-device>` | If the button was pressed since last check, flip the target's `on`/`off` state. |
 | `adjust` | `adjust <gate-device> <target-if-on> <target-if-off> <step>` | UP/DOWN steps whichever target the gate device currently selects. |
 | `follow` | `follow <gate-device> <source-if-on> <source-if-off> <target>` | Every tick, copies whichever source the gate currently selects to target. The read-side twin of `adjust`'s shape. |
-| `pid` | `pid <gate-device> <setpoint-device-or-literal>` | Measurement piped in. Steps once per `/dev/pid/dt` seconds, only while the gate reads `on`; writes its output to `/dev/pidout`. See [Status](#status-what-actually-drives-the-heater-right-now). |
+| `pid` | `pid <gate-device> <gate-value> <setpoint-device-or-literal>` | Measurement piped in. Steps once per `/dev/pid/dt` seconds, only while the gate device's reading matches `<gate-value>`; writes its output to `/dev/pidout`. |
 | `monitor` | `monitor` | One status line: mode, setpoint, skin temp, current, pidout, percent, integral. Repeats its column header every 10 lines. Meant to run under `watch`, not `&`. |
+| `phase` | `phase` | The temperature-phase transition engine. Self-paced ~1Hz; owns `/dev/state` as its only writer. See [Status](#status-what-actually-drives-the-heater-right-now). |
+| `safelut` | `safelut` | Ambient temp piped in, looks up safe-mode's open-loop power from a hardcoded table, outputs it. Stateless, ungated. |
+| `select` | `select <state-device> <label>=<source> [<label>=<source> ...]` | `follow`'s N-way sibling: outputs whichever labeled source matches the state device's current value. No match falls back to `0`. |
 
 ## Recipes
 
@@ -189,13 +197,16 @@ toggle /dev/buttons/manual /dev/heaterauto &          # MANUAL button toggles au
 adjust /dev/heaterauto /dev/setpoint /dev/percent 0.5 &   # UP/DOWN adjusts whichever the mode selects
 ```
 
-Full auto/manual heater control — PID computes continuously but only
-steps while `/dev/heaterauto` is `on`; `follow` is the single arbiter
-that decides which of the two live sources actually reaches the real
-heater:
+Full heater control, manual and auto, boost/coast/PID/safe-mode phases
+included — `follow`'s own line never changes shape no matter how much
+richer the auto side gets, since everything upstream funnels into one
+`/dev/autopower`:
 ```
-cat /dev/skintemp | pid /dev/heaterauto /dev/setpoint > /dev/pidout &
-follow /dev/heaterauto /dev/pidout /dev/percent /dev/heater &
+phase &
+select /dev/state boost=80 coast=0 pid=/dev/pidout safe=/dev/safepower > /dev/autopower &
+cat /dev/skintemp | pid /dev/state pid /dev/setpoint > /dev/pidout &
+cat /dev/ambient | safelut > /dev/safepower &
+follow /dev/heaterauto /dev/autopower /dev/percent /dev/heater &
 ```
 
 Manage what's running:
@@ -231,20 +242,33 @@ watch 500 cat /dev/skintemp
 
 ## Status: what actually drives the heater right now
 
-Both sides are wired: `follow` (above) is the sole writer to
-`/dev/heater`, forwarding `/dev/pidout` while `/dev/heaterauto` is
-`on` and `/dev/percent` while it's `off`. `prog/pid.cpp` is PID alone
-— no feed-forward table, no phase state machine (both were babywarmer
-concerns, deliberately not brought back). It self-gates on
-`/dev/heaterauto` for anti-windup (freezes its integral, not just its
-output, while inactive) and self-paces `/dev/pid/dt` independent of
-the job scheduler's own 150ms poll interval, so a background `&` job
-is enough — nothing needs to start or stop it as phases change later,
-only the gate's value needs to change.
+`follow` is the sole writer to `/dev/heater`: `/dev/autopower` while
+`/dev/heaterauto` is `on`, `/dev/percent` while it's `off`. Manual mode
+is unchanged. Auto mode now has real phases, recovered from
+babywarmer's own `task_pidctrl()` state machine:
 
-Not yet built: the phase state machine itself (PHASE1A/COAST/PHASE2,
-safety trips, sensor-drop detection) — a separate, later concern, not
-this control law's job.
+- **boost** — 80% power until skin nears setpoint, with a 5-minute
+  no-rise watchdog (→ `safe` if skin isn't actually climbing).
+- **coast** — 0% power for 45s, letting the current-sense average
+  settle, then → `pid` with a seeded integral (babywarmer's own
+  documented head-start).
+- **pid** — `prog/pid.cpp` does the control math, gated on
+  `/dev/state` reading `pid`. `phase` runs two watchdogs alongside it
+  (fast sustained drop, slow sustained low) — either → `safe`.
+- **safe** — `safelut`'s ambient-temp lookup table drives the heater
+  open-loop, capped at 55%. Recovers to `pid` once skin gets back
+  within 2°C of setpoint.
+
+`phase` is `/dev/state`'s only writer, self-paced at ~1Hz like `pid`.
+`select` is the only thing standing between the four phases and
+`/dev/autopower` — `follow`'s own line at the top never has to change
+shape no matter how much richer the auto side gets.
+
+Deliberately not brought back (see `prog/phase.cpp`'s header comment
+for the reasoning): the setpoint-jump-triggers-reboost path, and
+`heater_check_task`'s current-sense/SSR-stuck-on safety relay tripping
+— a separate, orthogonal safety subsystem, not part of this
+temperature-phase machine.
 
 ## Architecture, briefly
 

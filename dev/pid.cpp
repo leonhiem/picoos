@@ -25,6 +25,14 @@
  * living in the same namespace as everything else, same as any other
  * device.
  *
+ * prevmeas: read/write, derivative-on-measurement's last-measurement
+ * tracking. Promoted from a private C static in prog/pid.cpp to a real
+ * device specifically because prog/phase.cpp's transition engine needs
+ * to seed it (bumpless start into PID mode) at exactly the moment it
+ * changes /dev/state -- state only pid.cpp itself used to touch, now
+ * genuinely shared between the two, so it has to be a device, not a
+ * hidden static one file can't reach from another.
+ *
  * pidout: read/write, holds the PID's last computed output (0-100).
  * Written by prog/pid.cpp exactly like any other device write (plain
  * fs_write) -- nothing stops a human from writing it directly too,
@@ -47,6 +55,7 @@ static float ti = TI_DEF;
 static float td = TD_DEF;
 static float dt = DT_DEF;
 static float integral = 0.0f;
+static float prevmeas = 0.0f;
 static float pidout = 0.0f;
 
 static int write_float(const char *buf, int len, float *dst, float lo, float hi)
@@ -81,6 +90,9 @@ static int dt_write(const char *buf, int len) { return write_float(buf, len, &dt
 static int integral_read(char *buf, int len)        { return snprintf(buf, len, "%.3f\n", integral); }
 static int integral_write(const char *buf, int len) { return write_float(buf, len, &integral, -1000.0f, 1000.0f); }
 
+static int prevmeas_read(char *buf, int len)        { return snprintf(buf, len, "%.2f\n", prevmeas); }
+static int prevmeas_write(const char *buf, int len) { return write_float(buf, len, &prevmeas, -1000.0f, 1000.0f); }
+
 static int pidout_read(char *buf, int len)        { return snprintf(buf, len, "%.1f\n", pidout); }
 static int pidout_write(const char *buf, int len) { return write_float(buf, len, &pidout, 0.0f, 100.0f); }
 
@@ -89,6 +101,7 @@ static const device_t dev_ti       = { "/dev/pid/ti",       0, 0, ti_read,      
 static const device_t dev_td       = { "/dev/pid/td",       0, 0, td_read,       td_write };
 static const device_t dev_dt       = { "/dev/pid/dt",       0, 0, dt_read,       dt_write };
 static const device_t dev_integral = { "/dev/pid/integral", 0, 0, integral_read, integral_write };
+static const device_t dev_prevmeas = { "/dev/pid/prevmeas", 0, 0, prevmeas_read, prevmeas_write };
 static const device_t dev_pidout   = { "/dev/pidout",       0, 0, pidout_read,   pidout_write };
 
 void pid_devices_register(void)
@@ -98,5 +111,6 @@ void pid_devices_register(void)
     fs_register(&dev_td);
     fs_register(&dev_dt);
     fs_register(&dev_integral);
+    fs_register(&dev_prevmeas);
     fs_register(&dev_pidout);
 }

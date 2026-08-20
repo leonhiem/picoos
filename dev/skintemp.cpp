@@ -9,7 +9,7 @@
  */
 #include "warmer.h"
 #include "kernel/fs.h"
-#include "ntc_lut.h"
+#include "ntc.h"
 #include "ads1115.h"
 #include "hardware/i2c.h"
 #include <cstdio>
@@ -36,13 +36,7 @@ static int skintemp_read(char *buf, int len)
     uint16_t adc_value;
     ads1115_read_adc(&adc_value, &adc);
 
-    short adc_sample = (short)adc_value;
-    adc_sample += 11025; // 0V -> 50degC
-    adc_sample = adc_sample >> 5;
-    if (adc_sample < 0)   adc_sample = 0;
-    if (adc_sample > 649) adc_sample = 649;
-
-    float t_skin = (float)(ntc_lut[adc_sample]) / 10.0f;
+    float t_skin = ntc_convert(adc_value);
     return snprintf(buf, len, "%.1f\n", t_skin);
 }
 
