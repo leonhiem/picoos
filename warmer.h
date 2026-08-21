@@ -98,6 +98,7 @@ void init_seg7(void);
 
 void tpo_apply(void);
 void heater_set_power(float pct); // clamped to [0,100]; dev/heater.cpp calls this
+float heater_get_power(void);     // last commanded value; dev/heater.cpp's read() calls this
 
 // dev/*.cpp -- register each device with kernel/fs.h's namespace.
 void skintemp_register(void);

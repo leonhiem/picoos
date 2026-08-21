@@ -61,18 +61,23 @@ static void run_slot(int i)
     pipeline_run_once(&slots[i].p, false); // background: no spam without a > redirect
 }
 
-static void job_task_0(void) { run_slot(0); }
-static void job_task_1(void) { run_slot(1); }
-static void job_task_2(void) { run_slot(2); }
-static void job_task_3(void) { run_slot(3); }
+// One trampoline per job slot, generated mechanically -- see jobs.h's
+// header comment for why each slot still needs its own distinct
+// function. JOB_SLOTS must list exactly MAX_JOBS entries, X(0)..X(N-1);
+// growing MAX_JOBS means adding more X(n) tokens here, in both places
+// below, nothing else.
+#define JOB_SLOTS X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11)
+
+#define X(n) static void job_task_##n(void) { run_slot(n); }
+JOB_SLOTS
+#undef X
 
 void jobs_init(void)
 {
     for (int i = 0; i < MAX_JOBS; i++) slots[i].active = false;
-    task_register("job1", job_task_0, JOB_POLL_MS);
-    task_register("job2", job_task_1, JOB_POLL_MS);
-    task_register("job3", job_task_2, JOB_POLL_MS);
-    task_register("job4", job_task_3, JOB_POLL_MS);
+#define X(n) task_register("job" #n, job_task_##n, JOB_POLL_MS);
+    JOB_SLOTS
+#undef X
 }
 
 int job_start(const pipeline_t *p)

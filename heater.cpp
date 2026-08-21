@@ -23,6 +23,11 @@ void heater_set_power(float pct)
     heaterpower = pct;
 }
 
+float heater_get_power(void)
+{
+    return heaterpower;
+}
+
 /* ═══════════════════════════════════════════════════
    tpo_apply()
    Time-Proportional Output — call once per TICK_MS.

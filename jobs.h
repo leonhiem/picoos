@@ -18,9 +18,12 @@
  * on its own schedule, "killing" it just flips the slot back to
  * inactive. kernel/task.h itself is untouched -- no task_unregister()
  * needed, and no way to pass a slot index through its plain function
- * pointer, so the trampolines are hand-duplicated one per slot. Fine
- * at MAX_JOBS=4; a context-carrying task_register() would be worth it
- * if this ever needed to grow much.
+ * pointer, so each slot still needs its own distinct trampoline
+ * function. jobs.cpp generates them via an X-macro now (was hand-
+ * duplicated one-by-one through MAX_JOBS=4 -- fine at 4, not at the
+ * 8+ concurrent jobs the phase-machine wiring plus UI jobs actually
+ * need) -- growing MAX_JOBS is a one-line list edit in jobs.cpp now,
+ * not retyping N near-identical functions.
  *
  * All jobs share one fixed poll interval (JOB_POLL_MS) -- not
  * independently tunable per job yet. 150ms was chosen for button-press
@@ -32,7 +35,7 @@
 #define JOB_MAX_ARGS   6 // slot 0 is the program name itself; bumped from 4
                          // for adjust's <gate> <target-on> <target-off> <step>
 #define JOB_TOK_MAX    24
-#define MAX_JOBS       4
+#define MAX_JOBS       12 // must match jobs.cpp's JOB_SLOTS X-macro list, entry-for-entry
 #define STAGE_BUF     1024 // ls's own listing grows with every device/program
                             // added -- 256 silently truncated it once (the bug
                             // that surfaced the whole snprintf-overcounting

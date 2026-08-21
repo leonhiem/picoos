@@ -1,9 +1,10 @@
 /**
- * dev/heater.cpp — /dev/heater: write-only, TPO heater power 0-100
+ * dev/heater.cpp — /dev/heater: read/write, TPO heater power 0-100
  *
  * write /dev/heater 25   -> heater_set_power(25.0), clamped [0,100]
  * write /dev/heater on   -> heater_set_power(100)   (alias)
  * write /dev/heater off  -> heater_set_power(0)      (alias)
+ * cat /dev/heater        -> the last commanded value, e.g. "25.0\n"
  *
  * on/off are just two more accepted spellings of the same 0-100 power
  * value (100 and 0), not a second mode -- still one write(), no side
@@ -15,11 +16,23 @@
  * takes effect on tpo_apply()'s next tick, not instantly. No safety
  * interlock beyond the 0-100 clamp: deliberately raw, matching the
  * rest of this experimental line.
+ *
+ * read() added so prog/monitor.cpp can show the actually-applied value
+ * (heater_get_power(), heater.cpp) rather than /dev/pidout/percent's
+ * own value -- those are what a *source* is computing, this is what's
+ * really reaching the SSR right now, which can matter if a wiring
+ * mistake leaves the two disagreeing.
  */
 #include "warmer.h"
 #include "kernel/fs.h"
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+
+static int heater_read(char *buf, int len)
+{
+    return snprintf(buf, len, "%.1f\n", heater_get_power());
+}
 
 static int heater_write(const char *buf, int len)
 {
@@ -43,7 +56,7 @@ static const device_t dev_heater = {
     "/dev/heater",
     0,
     0,
-    0,             // write-only
+    heater_read,
     heater_write,
 };
 

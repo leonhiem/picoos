@@ -74,6 +74,15 @@
  * for a state that starts brand new in this commit, not something to
  * retrofit onto sleep/run's existing, already-relied-on "nothing
  * typed is ever lost" contract.
+ *
+ * A "boot" script comes pre-loaded into scripts[0] -- baked into the
+ * firmware image itself (BOOT_SCRIPT_TEXT below), not written to any
+ * storage, so it's back after every reboot without needing EEPROM or
+ * onboard-flash persistence to exist first (still neither exists on
+ * this board -- see the RAM-only note above, still true for anything
+ * *captured* interactively). `run boot` starts it. Deliberately not
+ * auto-run at boot without being asked -- this wiring starts real
+ * heater control, and that shouldn't begin unattended.
  */
 #include "kernel/fs.h"
 #include "jobs.h"
@@ -87,10 +96,12 @@
 
 #define SCRIPT_MAX       4
 #define SCRIPT_NAME_MAX  16
-#define SCRIPT_TEXT_MAX  512  // a handful of lines' worth; independent of
-                              // jobs.h's STAGE_BUF -- different concern (script
-                              // storage, not ls's output), just happened to
-                              // start at the same number
+#define SCRIPT_TEXT_MAX  1024 // a handful of lines' worth; independent of
+                               // jobs.h's STAGE_BUF -- different concern
+                               // (script storage, not ls's output). Bumped
+                               // from 512 -- BOOT_SCRIPT_TEXT below alone
+                               // is ~480 bytes, too close to that cap to
+                               // leave any real room to grow it further.
 
 typedef struct {
     bool used;
@@ -98,7 +109,25 @@ typedef struct {
     char text[SCRIPT_TEXT_MAX]; // lines joined by '\n', nul-terminated
 } script_t;
 
-static script_t scripts[SCRIPT_MAX];
+// The default wiring for full manual+auto heater control (boost/coast/
+// pid/safe phases) plus the UI jobs (button toggles, display follows) --
+// exactly the recipe from README.md's "Full heater control" section,
+// each line backgrounded with its own trailing '&' since run_step()
+// replays these through the same dispatch() a typed line goes through.
+#define BOOT_SCRIPT_TEXT \
+    "follow /dev/heaterauto /dev/setpoint /dev/percent /dev/seg7small &\n" \
+    "toggle /dev/buttons/manual /dev/heaterauto &\n" \
+    "adjust /dev/heaterauto /dev/setpoint /dev/percent 0.5 &\n" \
+    "phase &\n" \
+    "select /dev/state boost=80 coast=0 pid=/dev/pidout safe=/dev/safepower > /dev/autopower &\n" \
+    "cat /dev/skintemp | pid /dev/state pid /dev/setpoint > /dev/pidout &\n" \
+    "cat /dev/ambient | safelut > /dev/safepower &\n" \
+    "follow /dev/heaterauto /dev/autopower /dev/percent /dev/heater &\n" \
+    "cat /dev/skintemp > /dev/seg7big &\n"
+
+static script_t scripts[SCRIPT_MAX] = {
+    { true, "boot", BOOT_SCRIPT_TEXT },
+};
 
 static bool sleeping = false;
 static absolute_time_t wake_time;

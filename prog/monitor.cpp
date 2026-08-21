@@ -15,13 +15,12 @@
  * Deliberately not a generic "print N devices" program -- like hyst's
  * heating-only polarity, this is specifically a warmer status line,
  * with its own fixed columns and a repeated header, same shape as the
- * babywarmer line it replaces. state/ambient/templow/temphigh/curr-
- * fail/warn columns from that original line are gone because there's
- * no phase state machine or those specific checks here yet -- add
- * columns back if/when the devices behind them exist. prev_meas is
- * gone too -- prog/pid.cpp deliberately kept it a private static, not
- * a device (see its own header comment), so there's nothing here to
- * read it from.
+ * babywarmer line it replaces. templow/temphigh/curr-fail/warn columns
+ * from that original line are still gone -- there's no equivalent
+ * device for any of them yet. phase/ambient/heat came back once
+ * /dev/state, /dev/ambient, and a readable /dev/heater existed to
+ * read them from. prev_meas stays gone -- it's still prog/pid.cpp's
+ * private static, not a device (see its own header comment).
  *
  * Column header repeats every 10 lines (matches the original's
  * line_idx % 10), tracked as one more static counter -- same
@@ -48,6 +47,23 @@ static float read_dev(const char *path)
     return strtof(buf, 0);
 }
 
+// For short text devices (/dev/heaterauto, /dev/state) -- copies at
+// most outlen-1 bytes into out, trimming any trailing newline, and
+// always nul-terminates. Falls back to "?" if the device is missing.
+static void read_dev_str(const char *path, char *out, int outlen)
+{
+    int fd = fs_open(path);
+    if (fd < 0) { snprintf(out, outlen, "?"); return; }
+    char buf[16];
+    int n = fs_read(fd, buf, sizeof(buf) - 1);
+    fs_close(fd);
+    if (n < 0) { snprintf(out, outlen, "?"); return; }
+    if (n > 0 && buf[n - 1] == '\n') n--;
+    int m = n < outlen - 1 ? n : outlen - 1;
+    for (int i = 0; i < m; i++) out[i] = buf[i];
+    out[m] = '\0';
+}
+
 static int monitor_run(const char *in, int inlen, int argc, char **argv, char *out, int outlen)
 {
     (void)in;
@@ -55,17 +71,17 @@ static int monitor_run(const char *in, int inlen, int argc, char **argv, char *o
     (void)argc;
     (void)argv;
 
-    char gbuf[4] = "off";
-    int gfd = fs_open("/dev/heaterauto");
-    if (gfd >= 0) {
-        int gn = fs_read(gfd, gbuf, sizeof(gbuf) - 1);
-        fs_close(gfd);
-        gbuf[gn >= 0 ? gn : 0] = '\0';
-    }
-    bool auto_mode = strncmp(gbuf, "on", 2) == 0;
+    char mode[8];
+    read_dev_str("/dev/heaterauto", mode, sizeof(mode));
+    bool auto_mode = strncmp(mode, "on", 2) == 0;
+
+    char phase[8];
+    read_dev_str("/dev/state", phase, sizeof(phase));
 
     float setp     = read_dev("/dev/setpoint");
     float skin     = read_dev("/dev/skintemp");
+    float amb      = read_dev("/dev/ambient");
+    float heat     = read_dev("/dev/heater");
     float curr     = read_dev("/dev/current");
     float pidout   = read_dev("/dev/pidout");
     float percent  = read_dev("/dev/percent");
@@ -75,15 +91,15 @@ static int monitor_run(const char *in, int inlen, int argc, char **argv, char *o
     if (line_idx % 10 == 0) {
         int avail = outlen - pos;
         int n = snprintf(out + pos, avail,
-            "mode   setp  skin   curr  pidout percent integral\n");
+            "mode   phase setp  skin  amb   heat  curr  pidout percent integral\n");
         if (n >= 0 && n < avail) pos += n;
     }
     line_idx++;
 
     int avail = outlen - pos;
     int n = snprintf(out + pos, avail,
-        "%-6s %5.1f %5.1f %6.0f %6.1f %7.1f %+8.3f\n",
-        auto_mode ? "auto" : "manual", setp, skin, curr, pidout, percent, integral);
+        "%-6s %-5s %5.1f %5.1f %5.1f %5.1f %6.0f %6.1f %7.1f %+8.3f\n",
+        auto_mode ? "auto" : "manual", phase, setp, skin, amb, heat, curr, pidout, percent, integral);
     if (n >= 0 && n < avail) pos += n;
 
     return pos;

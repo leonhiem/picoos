@@ -110,8 +110,13 @@ stage := progname [arg...]
 as `cd`/`export` in a real Unix shell not showing up on `$PATH`. They
 touch the shell's own state rather than being a text-in/text-out
 program, so they intentionally don't appear in `ls`'s listing below.
-Scripts are RAM-only for now (this board has no EEPROM) — they don't
-survive a reboot, and there's no boot-time auto-run yet.
+Scripts you `script`/capture yourself are RAM-only (this board has no
+EEPROM) — they don't survive a reboot. One script, `boot`, is the
+exception: it's baked into the firmware image itself
+(`BOOT_SCRIPT_TEXT` in `shell.cpp`), so `run boot` is available fresh
+after every reboot with nothing to retype — but still something you
+run yourself, not an automatic boot-time action, since it starts real
+heater control. See [Recipes](#recipes) for what it wires up.
 
 Ctrl-C only interrupts `watch` — while watching, every byte is
 actively read and discarded except Ctrl-C, which is a deliberate
@@ -134,7 +139,7 @@ print a short error instead of doing something silently wrong.
 | `/dev/lamp` | read/write | Baby-light LED. `on`/`off`. |
 | `/dev/alarm` | write | Buzzer + alarm LED together. `on`/`off`. |
 | `/dev/relay` | write | The mechanical safety relay. `on`/`off`. Bare manual toggle, no automatic tripping. |
-| `/dev/heater` | write | TPO/PWM heater power, `0`-`100`, or `on` (=100)/`off` (=0) aliases. Drives real heat output. |
+| `/dev/heater` | read/write | TPO/PWM heater power, `0`-`100`, or `on` (=100)/`off` (=0) aliases on write. Read returns the last commanded value. Drives real heat output. |
 | `/dev/leds` | write | All 7 front-panel LEDs at once: `write "<name> on\|off"`, one of `aut warm low high fail chk man`. |
 | `/dev/leds/<name>` | read/write | One LED only, independent of the other six. |
 | `/dev/seg7big` | write | Large 7-segment display. Write a number, e.g. `36.5` — up to 3 digits, dot always lands after the middle digit (hardware limitation). |
@@ -166,7 +171,7 @@ print a short error instead of doing something silently wrong.
 | `adjust` | `adjust <gate-device> <target-if-on> <target-if-off> <step>` | UP/DOWN steps whichever target the gate device currently selects. |
 | `follow` | `follow <gate-device> <source-if-on> <source-if-off> <target>` | Every tick, copies whichever source the gate currently selects to target. The read-side twin of `adjust`'s shape. |
 | `pid` | `pid <gate-device> <gate-value> <setpoint-device-or-literal>` | Measurement piped in. Steps once per `/dev/pid/dt` seconds, only while the gate device's reading matches `<gate-value>`; writes its output to `/dev/pidout`. |
-| `monitor` | `monitor` | One status line: mode, setpoint, skin temp, current, pidout, percent, integral. Repeats its column header every 10 lines. Meant to run under `watch`, not `&`. |
+| `monitor` | `monitor` | One status line: mode, phase, setpoint, skin temp, ambient, heater, current, pidout, percent, integral. Repeats its column header every 10 lines. Meant to run under `watch`, not `&`. |
 | `phase` | `phase` | The temperature-phase transition engine. Self-paced ~1Hz; owns `/dev/state` as its only writer. See [Status](#status-what-actually-drives-the-heater-right-now). |
 | `safelut` | `safelut` | Ambient temp piped in, looks up safe-mode's open-loop power from a hardcoded table, outputs it. Stateless, ungated. |
 | `select` | `select <state-device> <label>=<source> [<label>=<source> ...]` | `follow`'s N-way sibling: outputs whichever labeled source matches the state device's current value. No match falls back to `0`. |
@@ -198,15 +203,21 @@ adjust /dev/heaterauto /dev/setpoint /dev/percent 0.5 &   # UP/DOWN adjusts whic
 ```
 
 Full heater control, manual and auto, boost/coast/PID/safe-mode phases
-included — `follow`'s own line never changes shape no matter how much
-richer the auto side gets, since everything upstream funnels into one
-`/dev/autopower`:
+included, plus the display/button UI jobs — `follow`'s own line never
+changes shape no matter how much richer the auto side gets, since
+everything upstream funnels into one `/dev/autopower`. This exact
+recipe is baked in as the `boot` script (see [Using the
+shell](#using-the-shell)), so `run boot` does all nine lines at once:
 ```
+follow /dev/heaterauto /dev/setpoint /dev/percent /dev/seg7small &
+toggle /dev/buttons/manual /dev/heaterauto &
+adjust /dev/heaterauto /dev/setpoint /dev/percent 0.5 &
 phase &
 select /dev/state boost=80 coast=0 pid=/dev/pidout safe=/dev/safepower > /dev/autopower &
 cat /dev/skintemp | pid /dev/state pid /dev/setpoint > /dev/pidout &
 cat /dev/ambient | safelut > /dev/safepower &
 follow /dev/heaterauto /dev/autopower /dev/percent /dev/heater &
+cat /dev/skintemp > /dev/seg7big &
 ```
 
 Manage what's running:
