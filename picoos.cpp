@@ -162,6 +162,7 @@ int main()
     select_register();
     alarmcheck_register();
     alarmctl_register();
+    ledwire_register();
     ls_register();
     jobs_init();
 

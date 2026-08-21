@@ -47,6 +47,7 @@ add_executable(picoos
     prog/select.cpp
     prog/alarmcheck.cpp
     prog/alarm.cpp
+    prog/ledwire.cpp
     prog/ls.cpp
 )
 add_subdirectory("../pico-onewire" pico_one_wire)

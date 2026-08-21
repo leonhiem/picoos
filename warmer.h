@@ -136,6 +136,7 @@ void safelut_register(void);
 void select_register(void);
 void alarmcheck_register(void);
 void alarmctl_register(void);
+void ledwire_register(void);
 void ls_register(void);
 
 // shell.cpp

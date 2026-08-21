@@ -180,6 +180,7 @@ print a short error instead of doing something silently wrong.
 | `select` | `select <state-device> <label>=<source> [<label>=<source> ...]` | `follow`'s N-way sibling: outputs whichever labeled source matches the state device's current value. No match falls back to `0`. |
 | `alarmcheck` | `alarmcheck` | Safety relay control + the three alarm conditions (heater/temphigh/templow), self-paced to ~15s. Drives `/dev/relay` and `/dev/alarm/*`. Ungated — runs the same in manual or auto mode. |
 | `alarm` | `alarm <cond-device> [<cond-device> ...]` | ORs the given condition devices, drives `/dev/alarm`, honors the mute button. Runs at the normal ~150ms job cadence, deliberately not self-paced like `alarmcheck` — a mute press needs to register fast. |
+| `ledwire` | `ledwire` | Drives all 7 front-panel LEDs from their fixed condition sources (mode, phase, alarm conditions), one job. |
 
 ## Recipes
 
@@ -208,12 +209,12 @@ adjust /dev/heaterauto /dev/setpoint /dev/percent 0.5 &   # UP/DOWN adjusts whic
 ```
 
 Full heater control, manual and auto, boost/coast/PID/safe-mode phases
-included, plus the safety relay/alarm checks and the display/button UI
-jobs — `follow`'s own line never changes shape no matter how much
-richer the auto side gets, since everything upstream funnels into one
-`/dev/autopower`. This exact recipe is baked in as the `boot` script
-(see [Using the shell](#using-the-shell)), so `run boot` does all
-eleven lines at once:
+included, plus the safety relay/alarm checks, the front-panel LEDs, and
+the display/button UI jobs — `follow`'s own line never changes shape
+no matter how much richer the auto side gets, since everything
+upstream funnels into one `/dev/autopower`. This exact recipe is baked
+in as the `boot` script (see [Using the shell](#using-the-shell)), so
+`run boot` does all twelve lines at once:
 ```
 follow /dev/heaterauto /dev/setpoint /dev/percent /dev/seg7small &
 toggle /dev/buttons/manual /dev/heaterauto &
@@ -226,6 +227,7 @@ follow /dev/heaterauto /dev/autopower /dev/percent /dev/heater &
 cat /dev/skintemp > /dev/seg7big &
 alarmcheck &
 alarm /dev/alarm/heater /dev/alarm/temphigh /dev/alarm/templow &
+ledwire &
 ```
 
 Manage what's running:
@@ -301,10 +303,17 @@ register fast). ORs whichever condition devices it's given, drives
 60-second snooze babywarmer used (LED stays lit while muted; only the
 buzzer is silenced).
 
+`ledwire` ties it all to the front panel — one job, seven fixed
+mappings (Leon's own definitions): `aut`/`man` mirror `/dev/heaterauto`,
+`warm`/`chk` light during `/dev/state`'s `boost`/`safe` phases,
+`low`/`high`/`fail` mirror `/dev/alarm/{templow,temphigh,heater}`.
+Bundled deliberately, unlike everywhere else in this codebase that
+favors composing small independent pieces — these seven mappings are
+fixed, known wiring, not something to mix and match, same call
+`monitor` already made for reading many devices into one status line.
+
 Still deliberately not brought back (see `prog/phase.cpp`'s header
 comment for the reasoning): the setpoint-jump-triggers-reboost path.
-Also not wired up yet: none of `/dev/alarm/*` drive the front-panel
-LEDs — a separate, later step.
 
 ## Architecture, briefly
 

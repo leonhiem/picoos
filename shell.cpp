@@ -112,8 +112,8 @@ typedef struct {
 // The default wiring for full manual+auto heater control (boost/coast/
 // pid/safe phases) plus the UI jobs (button toggles, display follows) --
 // exactly the recipe from README.md's "Full heater control" section
-// (alarmcheck/alarm included), each line backgrounded with its own
-// trailing '&' since run_step()
+// (alarmcheck/alarm/ledwire included), each line backgrounded with its
+// own trailing '&' since run_step()
 // replays these through the same dispatch() a typed line goes through.
 #define BOOT_SCRIPT_TEXT \
     "follow /dev/heaterauto /dev/setpoint /dev/percent /dev/seg7small &\n" \
@@ -126,7 +126,8 @@ typedef struct {
     "follow /dev/heaterauto /dev/autopower /dev/percent /dev/heater &\n" \
     "cat /dev/skintemp > /dev/seg7big &\n" \
     "alarmcheck &\n" \
-    "alarm /dev/alarm/heater /dev/alarm/temphigh /dev/alarm/templow &\n"
+    "alarm /dev/alarm/heater /dev/alarm/temphigh /dev/alarm/templow &\n" \
+    "ledwire &\n"
 
 static script_t scripts[SCRIPT_MAX] = {
     { true, "boot", BOOT_SCRIPT_TEXT },
