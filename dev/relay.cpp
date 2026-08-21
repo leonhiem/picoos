@@ -5,7 +5,7 @@
  * write /dev/relay off  -> PIN_HEATERSAFE released
  *
  * PIN_HEATERSAFE was the safety cutoff in babywarmer's original
- * heater_check_task -- recovered as prog/heatercheck.cpp, which writes
+ * heater_check_task -- recovered as prog/alarmcheck.cpp, which writes
  * here through this same write() like any other consumer, not by
  * reaching around it. Still a bare manual toggle as far as this device
  * itself is concerned -- it doesn't know or care who's writing it,

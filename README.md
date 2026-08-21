@@ -137,8 +137,7 @@ print a short error instead of doing something silently wrong.
 | `/dev/buttons` | read | Names of buttons pressed since last read (e.g. `up down`), read-and-clear, **all buttons at once**. |
 | `/dev/buttons/<name>` | read | One button only (`up`, `down`, `mute`, `manual`, `start`, `lamp`), read-and-clear, independent of the others. |
 | `/dev/lamp` | read/write | Baby-light LED. `on`/`off`. |
-| `/dev/alarm` | write | Buzzer + alarm LED together. `on`/`off`. |
-| `/dev/relay` | write | The mechanical safety relay. `on`/`off`. Doesn't know or care who writes it — `heatercheck` drives it automatically now, same as a human could. |
+| `/dev/relay` | write | The mechanical safety relay. `on`/`off`. Doesn't know or care who writes it — `alarmcheck` drives it automatically now, same as a human could. |
 | `/dev/heater` | read/write | TPO/PWM heater power, `0`-`100`, or `on` (=100)/`off` (=0) aliases on write. Read returns the last commanded value. Drives real heat output. |
 | `/dev/leds` | write | All 7 front-panel LEDs at once: `write "<name> on\|off"`, one of `aut warm low high fail chk man`. |
 | `/dev/leds/<name>` | read/write | One LED only, independent of the other six. |
@@ -157,7 +156,10 @@ print a short error instead of doing something silently wrong.
 | `/dev/state` | read/write | Phase machine's current phase: `idle`, `boost`, `coast`, `pid`, or `safe`. Written only by `phase`. |
 | `/dev/autopower` | read/write | Whatever the active phase says heater power should be. What `follow` forwards to `/dev/heater` in auto mode. |
 | `/dev/safepower` | read/write | Safe mode's lookup-table output, from `safelut`. |
-| `/dev/heaterfail` | read/write | `on` = `heatercheck` detected a current-sense/commanded-power mismatch. Not wired to LEDs/alarm yet. |
+| `/dev/alarm` | write | Buzzer + alarm LED, `on`/`muted`/`off`. `muted` keeps the LED lit, silences only the buzzer. Written by `alarm`, but nothing stops a human writing it directly. |
+| `/dev/alarm/heater` | read/write | `on` = `alarmcheck` detected a current-sense/commanded-power mismatch. |
+| `/dev/alarm/temphigh` | read/write | `on` = skin above 40°C (fixed testing threshold, `alarmcheck`). |
+| `/dev/alarm/templow` | read/write | `on` = skin below 10°C (fixed testing threshold, `alarmcheck`). Not wired to the front-panel LEDs yet. |
 
 ## Programs (`bin/...`, run from the shell as bare names)
 
@@ -176,7 +178,8 @@ print a short error instead of doing something silently wrong.
 | `phase` | `phase` | The temperature-phase transition engine. Self-paced ~1Hz; owns `/dev/state` as its only writer. See [Status](#status-what-actually-drives-the-heater-right-now). |
 | `safelut` | `safelut` | Ambient temp piped in, looks up safe-mode's open-loop power from a hardcoded table, outputs it. Stateless, ungated. |
 | `select` | `select <state-device> <label>=<source> [<label>=<source> ...]` | `follow`'s N-way sibling: outputs whichever labeled source matches the state device's current value. No match falls back to `0`. |
-| `heatercheck` | `heatercheck` | Safety relay control + current-sense fail detection, self-paced to ~15s. Drives `/dev/relay` and `/dev/heaterfail`. Ungated — runs the same in manual or auto mode. |
+| `alarmcheck` | `alarmcheck` | Safety relay control + the three alarm conditions (heater/temphigh/templow), self-paced to ~15s. Drives `/dev/relay` and `/dev/alarm/*`. Ungated — runs the same in manual or auto mode. |
+| `alarm` | `alarm <cond-device> [<cond-device> ...]` | ORs the given condition devices, drives `/dev/alarm`, honors the mute button. Runs at the normal ~150ms job cadence, deliberately not self-paced like `alarmcheck` — a mute press needs to register fast. |
 
 ## Recipes
 
@@ -205,12 +208,12 @@ adjust /dev/heaterauto /dev/setpoint /dev/percent 0.5 &   # UP/DOWN adjusts whic
 ```
 
 Full heater control, manual and auto, boost/coast/PID/safe-mode phases
-included, plus the safety relay check and the display/button UI jobs —
-`follow`'s own line never changes shape no matter how much richer the
-auto side gets, since everything upstream funnels into one
+included, plus the safety relay/alarm checks and the display/button UI
+jobs — `follow`'s own line never changes shape no matter how much
+richer the auto side gets, since everything upstream funnels into one
 `/dev/autopower`. This exact recipe is baked in as the `boot` script
-(see [Using the shell](#using-the-shell)), so `run boot` does all ten
-lines at once:
+(see [Using the shell](#using-the-shell)), so `run boot` does all
+eleven lines at once:
 ```
 follow /dev/heaterauto /dev/setpoint /dev/percent /dev/seg7small &
 toggle /dev/buttons/manual /dev/heaterauto &
@@ -221,7 +224,8 @@ cat /dev/skintemp | pid /dev/state pid /dev/setpoint > /dev/pidout &
 cat /dev/ambient | safelut > /dev/safepower &
 follow /dev/heaterauto /dev/autopower /dev/percent /dev/heater &
 cat /dev/skintemp > /dev/seg7big &
-heatercheck &
+alarmcheck &
+alarm /dev/alarm/heater /dev/alarm/temphigh /dev/alarm/templow &
 ```
 
 Manage what's running:
@@ -279,17 +283,28 @@ babywarmer's own `task_pidctrl()` state machine:
 `/dev/autopower` — `follow`'s own line at the top never has to change
 shape no matter how much richer the auto side gets.
 
-`heatercheck` is back too — babywarmer's own `heater_check_task`,
-self-paced to ~15s (same pattern as `pid`/`phase`, just a longer
-interval), driving `/dev/relay` automatically and reporting
-`/dev/heaterfail`. It's a separate, orthogonal safety subsystem, not
-part of the temperature-phase machine above — runs unconditionally in
-either manual or auto mode.
+`alarmcheck` is back too — babywarmer's own `heater_check_task`,
+renamed once it grew two more conditions, self-paced to ~15s (same
+pattern as `pid`/`phase`, just a longer interval), driving `/dev/relay`
+automatically and reporting `/dev/alarm/{heater,temphigh,templow}`
+(temphigh/templow use Leon's own fixed testing thresholds, 40°C/10°C,
+not babywarmer's original relative-to-setpoint/relative-to-ambient
+margins). It's a separate, orthogonal safety subsystem, not part of
+the temperature-phase machine above — runs unconditionally in either
+manual or auto mode.
+
+`alarm` reacts to those three conditions — babywarmer's own
+`task_alarm`, split into its own program running at the normal ~150ms
+job cadence (not self-paced like `alarmcheck` — a mute press needs to
+register fast). ORs whichever condition devices it's given, drives
+`/dev/alarm`'s buzzer+LED, and honors the MUTE button with the same
+60-second snooze babywarmer used (LED stays lit while muted; only the
+buzzer is silenced).
 
 Still deliberately not brought back (see `prog/phase.cpp`'s header
 comment for the reasoning): the setpoint-jump-triggers-reboost path.
-Also not wired up yet: `/dev/heaterfail` doesn't drive the front-panel
-LEDs or the alarm — a separate, later step.
+Also not wired up yet: none of `/dev/alarm/*` drive the front-panel
+LEDs — a separate, later step.
 
 ## Architecture, briefly
 

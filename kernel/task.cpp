@@ -3,11 +3,14 @@
 #include <cstdio>
 #include <cstring>
 
-#define TASK_MAX 24 // 2026-08-21: bumped from 8 -- shell+tpo (2) plus
+#define TASK_MAX 32 // 2026-08-21: bumped from 8 -- shell+tpo (2) plus
                     // MAX_JOBS job slots (jobs.h, now 12) already needs
                     // 14; given real headroom rather than sized to
                     // match, same lesson as fs.h/prog.h's caps this
                     // session.
+                    // 2026-08-21: bumped again, 24 -> 32, alongside
+                    // MAX_JOBS growing to 20 (shell+tpo+20 = 22, too
+                    // close to 24 for comfort).
 
 typedef struct {
     const char *name;

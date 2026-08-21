@@ -44,7 +44,8 @@ void setup_gpios(void)
     // outputs
     gpio_init(PIN_ALARM);
     gpio_set_dir(PIN_ALARM, GPIO_OUT);
-    gpio_put(PIN_ALARM, 0);
+    gpio_put(PIN_ALARM, 1); // silent -- PIN_ALARM is inverted on this
+                             // board (0 = sounding), see dev/alarm.cpp
 
     gpio_init(PIN_ALARM_LED);
     gpio_set_dir(PIN_ALARM_LED, GPIO_OUT);
@@ -145,7 +146,7 @@ int main()
     pid_devices_register();
     ambient_register();
     phase_devices_register();
-    heaterfail_register();
+    alarmcheck_devices_register();
 
     cat_register();
     echo_register();
@@ -159,7 +160,8 @@ int main()
     phase_register();
     safelut_register();
     select_register();
-    heatercheck_register();
+    alarmcheck_register();
+    alarmctl_register();
     ls_register();
     jobs_init();
 

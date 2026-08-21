@@ -35,7 +35,11 @@
 #define JOB_MAX_ARGS   6 // slot 0 is the program name itself; bumped from 4
                          // for adjust's <gate> <target-on> <target-off> <step>
 #define JOB_TOK_MAX    24
-#define MAX_JOBS       12 // must match jobs.cpp's JOB_SLOTS X-macro list, entry-for-entry
+#define MAX_JOBS       20 // must match jobs.cpp's JOB_SLOTS X-macro list, entry-for-entry.
+                          // Bumped from 12 -- the boot script alone is about to
+                          // reach 11 jobs, and LED wiring (the next piece) will
+                          // add more; given real headroom this time, same lesson
+                          // as every other capacity bump this session.
 #define STAGE_BUF     1024 // ls's own listing grows with every device/program
                             // added -- 256 silently truncated it once (the bug
                             // that surfaced the whole snprintf-overcounting
