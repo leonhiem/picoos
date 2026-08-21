@@ -4,9 +4,12 @@
  * write /dev/relay on   -> PIN_HEATERSAFE energized
  * write /dev/relay off  -> PIN_HEATERSAFE released
  *
- * PIN_HEATERSAFE was the safety cutoff in the old control loop's
- * heater_check_task, which is gone -- this is a bare manual toggle now,
- * no automatic tripping. Same deliberately-raw spirit as /dev/heater.
+ * PIN_HEATERSAFE was the safety cutoff in babywarmer's original
+ * heater_check_task -- recovered as prog/heatercheck.cpp, which writes
+ * here through this same write() like any other consumer, not by
+ * reaching around it. Still a bare manual toggle as far as this device
+ * itself is concerned -- it doesn't know or care who's writing it,
+ * same deliberately-raw spirit as /dev/heater.
  */
 #include "warmer.h"
 #include "kernel/fs.h"

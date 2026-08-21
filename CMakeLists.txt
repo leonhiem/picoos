@@ -32,6 +32,7 @@ add_executable(picoos
     dev/pid.cpp
     dev/ambient.cpp
     dev/phase.cpp
+    dev/heaterfail.cpp
     prog/cat.cpp
     prog/echo.cpp
     prog/thresh.cpp
@@ -44,6 +45,7 @@ add_executable(picoos
     prog/phase.cpp
     prog/safelut.cpp
     prog/select.cpp
+    prog/heatercheck.cpp
     prog/ls.cpp
 )
 add_subdirectory("../pico-onewire" pico_one_wire)

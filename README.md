@@ -138,7 +138,7 @@ print a short error instead of doing something silently wrong.
 | `/dev/buttons/<name>` | read | One button only (`up`, `down`, `mute`, `manual`, `start`, `lamp`), read-and-clear, independent of the others. |
 | `/dev/lamp` | read/write | Baby-light LED. `on`/`off`. |
 | `/dev/alarm` | write | Buzzer + alarm LED together. `on`/`off`. |
-| `/dev/relay` | write | The mechanical safety relay. `on`/`off`. Bare manual toggle, no automatic tripping. |
+| `/dev/relay` | write | The mechanical safety relay. `on`/`off`. Doesn't know or care who writes it — `heatercheck` drives it automatically now, same as a human could. |
 | `/dev/heater` | read/write | TPO/PWM heater power, `0`-`100`, or `on` (=100)/`off` (=0) aliases on write. Read returns the last commanded value. Drives real heat output. |
 | `/dev/leds` | write | All 7 front-panel LEDs at once: `write "<name> on\|off"`, one of `aut warm low high fail chk man`. |
 | `/dev/leds/<name>` | read/write | One LED only, independent of the other six. |
@@ -157,6 +157,7 @@ print a short error instead of doing something silently wrong.
 | `/dev/state` | read/write | Phase machine's current phase: `idle`, `boost`, `coast`, `pid`, or `safe`. Written only by `phase`. |
 | `/dev/autopower` | read/write | Whatever the active phase says heater power should be. What `follow` forwards to `/dev/heater` in auto mode. |
 | `/dev/safepower` | read/write | Safe mode's lookup-table output, from `safelut`. |
+| `/dev/heaterfail` | read/write | `on` = `heatercheck` detected a current-sense/commanded-power mismatch. Not wired to LEDs/alarm yet. |
 
 ## Programs (`bin/...`, run from the shell as bare names)
 
@@ -175,6 +176,7 @@ print a short error instead of doing something silently wrong.
 | `phase` | `phase` | The temperature-phase transition engine. Self-paced ~1Hz; owns `/dev/state` as its only writer. See [Status](#status-what-actually-drives-the-heater-right-now). |
 | `safelut` | `safelut` | Ambient temp piped in, looks up safe-mode's open-loop power from a hardcoded table, outputs it. Stateless, ungated. |
 | `select` | `select <state-device> <label>=<source> [<label>=<source> ...]` | `follow`'s N-way sibling: outputs whichever labeled source matches the state device's current value. No match falls back to `0`. |
+| `heatercheck` | `heatercheck` | Safety relay control + current-sense fail detection, self-paced to ~15s. Drives `/dev/relay` and `/dev/heaterfail`. Ungated — runs the same in manual or auto mode. |
 
 ## Recipes
 
@@ -203,11 +205,12 @@ adjust /dev/heaterauto /dev/setpoint /dev/percent 0.5 &   # UP/DOWN adjusts whic
 ```
 
 Full heater control, manual and auto, boost/coast/PID/safe-mode phases
-included, plus the display/button UI jobs — `follow`'s own line never
-changes shape no matter how much richer the auto side gets, since
-everything upstream funnels into one `/dev/autopower`. This exact
-recipe is baked in as the `boot` script (see [Using the
-shell](#using-the-shell)), so `run boot` does all nine lines at once:
+included, plus the safety relay check and the display/button UI jobs —
+`follow`'s own line never changes shape no matter how much richer the
+auto side gets, since everything upstream funnels into one
+`/dev/autopower`. This exact recipe is baked in as the `boot` script
+(see [Using the shell](#using-the-shell)), so `run boot` does all ten
+lines at once:
 ```
 follow /dev/heaterauto /dev/setpoint /dev/percent /dev/seg7small &
 toggle /dev/buttons/manual /dev/heaterauto &
@@ -218,6 +221,7 @@ cat /dev/skintemp | pid /dev/state pid /dev/setpoint > /dev/pidout &
 cat /dev/ambient | safelut > /dev/safepower &
 follow /dev/heaterauto /dev/autopower /dev/percent /dev/heater &
 cat /dev/skintemp > /dev/seg7big &
+heatercheck &
 ```
 
 Manage what's running:
@@ -275,11 +279,17 @@ babywarmer's own `task_pidctrl()` state machine:
 `/dev/autopower` — `follow`'s own line at the top never has to change
 shape no matter how much richer the auto side gets.
 
-Deliberately not brought back (see `prog/phase.cpp`'s header comment
-for the reasoning): the setpoint-jump-triggers-reboost path, and
-`heater_check_task`'s current-sense/SSR-stuck-on safety relay tripping
-— a separate, orthogonal safety subsystem, not part of this
-temperature-phase machine.
+`heatercheck` is back too — babywarmer's own `heater_check_task`,
+self-paced to ~15s (same pattern as `pid`/`phase`, just a longer
+interval), driving `/dev/relay` automatically and reporting
+`/dev/heaterfail`. It's a separate, orthogonal safety subsystem, not
+part of the temperature-phase machine above — runs unconditionally in
+either manual or auto mode.
+
+Still deliberately not brought back (see `prog/phase.cpp`'s header
+comment for the reasoning): the setpoint-jump-triggers-reboost path.
+Also not wired up yet: `/dev/heaterfail` doesn't drive the front-panel
+LEDs or the alarm — a separate, later step.
 
 ## Architecture, briefly
 

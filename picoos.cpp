@@ -145,6 +145,7 @@ int main()
     pid_devices_register();
     ambient_register();
     phase_devices_register();
+    heaterfail_register();
 
     cat_register();
     echo_register();
@@ -158,6 +159,7 @@ int main()
     phase_register();
     safelut_register();
     select_register();
+    heatercheck_register();
     ls_register();
     jobs_init();
 
