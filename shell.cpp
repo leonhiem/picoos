@@ -80,9 +80,12 @@
  * storage, so it's back after every reboot without needing EEPROM or
  * onboard-flash persistence to exist first (still neither exists on
  * this board -- see the RAM-only note above, still true for anything
- * *captured* interactively). `run boot` starts it. Deliberately not
- * auto-run at boot without being asked -- this wiring starts real
- * heater control, and that shouldn't begin unattended.
+ * *captured* interactively). task_shell() auto-runs it on its very
+ * first tick, before the prompt ever appears -- Leon's explicit
+ * request, overriding an earlier, deliberate default of requiring a
+ * human to type `run boot` first (this wiring starts real heater
+ * control; starting it unattended at every power-up was a choice
+ * worth naming out loud, not a silent default).
  */
 #include "kernel/fs.h"
 #include "jobs.h"
@@ -204,6 +207,17 @@ static bool parse_pipeline(char **tok, int ntok, pipeline_t *p, bool *background
     return true;
 }
 
+// Finds a used script slot by name, or -1. Shared by capture_line()'s
+// "am I redefining an existing script" check, the `run` builtin, and
+// task_shell()'s own boot-time auto-run lookup.
+static int find_script(const char *name)
+{
+    for (int i = 0; i < SCRIPT_MAX; i++) {
+        if (scripts[i].used && strcmp(scripts[i].name, name) == 0) return i;
+    }
+    return -1;
+}
+
 // Appends one typed line to the script currently being captured, or
 // finalizes it on a lone ".". Not called while a script is running --
 // run replays through dispatch(), never through capture.
@@ -211,10 +225,7 @@ static void capture_line(const char *line)
 {
     if (strcmp(line, ".") == 0) {
         capture_buf[capture_len] = '\0';
-        int slot = -1;
-        for (int i = 0; i < SCRIPT_MAX; i++) {
-            if (scripts[i].used && strcmp(scripts[i].name, capture_name) == 0) { slot = i; break; }
-        }
+        int slot = find_script(capture_name);
         if (slot < 0) {
             for (int i = 0; i < SCRIPT_MAX; i++) {
                 if (!scripts[i].used) { slot = i; break; }
@@ -289,10 +300,7 @@ static void dispatch(char *line)
     if (strcmp(tok[0], "run") == 0) {
         if (ntok < 2) { printf("usage: run <name>\n"); return; }
         if (running) { printf("run: already running a script\n"); return; }
-        int slot = -1;
-        for (int i = 0; i < SCRIPT_MAX; i++) {
-            if (scripts[i].used && strcmp(scripts[i].name, tok[1]) == 0) { slot = i; break; }
-        }
+        int slot = find_script(tok[1]);
         if (slot < 0) { printf("run: no such script '%s'\n", tok[1]); return; }
         strncpy(run_buf, scripts[slot].text, SCRIPT_TEXT_MAX - 1);
         run_buf[SCRIPT_TEXT_MAX - 1] = '\0';
@@ -365,8 +373,25 @@ void task_shell(void)
         printf("  jobs, kill    manage background pipelines\n");
         printf("  script, run   record and replay command sequences\n");
         printf("  watch         repeat a pipeline every <ms>, Ctrl-C to stop\n");
-        print_prompt();
         banner_shown = true;
+
+        // Auto-run 'boot' -- Leon's explicit request, overriding the
+        // earlier default of requiring a human to type `run boot`
+        // themselves (this starts real heater control unattended at
+        // every power-up now). scripts[0] is always seeded with "boot"
+        // (see BOOT_SCRIPT_TEXT above), so find_script() only fails
+        // here if something someday changes that.
+        int slot = find_script("boot");
+        if (slot >= 0) {
+            printf("running 'boot' automatically...\n");
+            strncpy(run_buf, scripts[slot].text, SCRIPT_TEXT_MAX - 1);
+            run_buf[SCRIPT_TEXT_MAX - 1] = '\0';
+            run_pos = 0;
+            running = true; // picked up by the `if (running)` block below,
+                             // same tick -- first line runs immediately
+        } else {
+            print_prompt();
+        }
     }
 
     if (sleeping) {

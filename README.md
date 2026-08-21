@@ -113,10 +113,11 @@ program, so they intentionally don't appear in `ls`'s listing below.
 Scripts you `script`/capture yourself are RAM-only (this board has no
 EEPROM) — they don't survive a reboot. One script, `boot`, is the
 exception: it's baked into the firmware image itself
-(`BOOT_SCRIPT_TEXT` in `shell.cpp`), so `run boot` is available fresh
-after every reboot with nothing to retype — but still something you
-run yourself, not an automatic boot-time action, since it starts real
-heater control. See [Recipes](#recipes) for what it wires up.
+(`BOOT_SCRIPT_TEXT` in `shell.cpp`), so it's back fresh after every
+reboot with nothing to retype. **It also runs automatically**, before
+the first prompt ever appears — real heater control starts unattended
+at every power-up as a result, a deliberate choice, not an
+oversight. See [Recipes](#recipes) for what it wires up.
 
 Ctrl-C only interrupts `watch` — while watching, every byte is
 actively read and discarded except Ctrl-C, which is a deliberate
@@ -213,8 +214,9 @@ included, plus the safety relay/alarm checks, the front-panel LEDs, and
 the display/button UI jobs — `follow`'s own line never changes shape
 no matter how much richer the auto side gets, since everything
 upstream funnels into one `/dev/autopower`. This exact recipe is baked
-in as the `boot` script (see [Using the shell](#using-the-shell)), so
-`run boot` does all twelve lines at once:
+in as the `boot` script (see [Using the shell](#using-the-shell)) and
+runs automatically at every power-up — `run boot` also does all twelve
+lines at once on demand, e.g. after a `kill` of everything mid-session:
 ```
 follow /dev/heaterauto /dev/setpoint /dev/percent /dev/seg7small &
 toggle /dev/buttons/manual /dev/heaterauto &
