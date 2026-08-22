@@ -161,6 +161,13 @@ print a short error instead of doing something silently wrong.
 | `/dev/alarm/heater` | read/write | `on` = `alarmcheck` detected a current-sense/commanded-power mismatch. |
 | `/dev/alarm/temphigh` | read/write | `on` = skin above 40°C (fixed testing threshold, `alarmcheck`). |
 | `/dev/alarm/templow` | read/write | `on` = skin below 10°C (fixed testing threshold, `alarmcheck`). Not wired to the front-panel LEDs yet. |
+| `/dev/tft/aut` | read/write | Mirrors `/dev/heaterauto` for the ST7735 display: `on` → gear icon. |
+| `/dev/tft/man` | read/write | Mirrors `/dev/heaterauto` inverted: `on` → yellow hand icon. |
+| `/dev/tft/chk` | read/write | `on` during `/dev/state`'s `safe` phase → sensor+warning icons blink together. |
+| `/dev/tft/low` | read/write | Mirrors `/dev/alarm/templow` → blue cold face, FAIL+ALARM icons blink. |
+| `/dev/tft/high` | read/write | Mirrors `/dev/alarm/temphigh` → red hot face, FAIL+ALARM icons blink. |
+| `/dev/tft/fail` | read/write | Mirrors `/dev/alarm/heater` → heater-rod blinks red↔grey, FAIL+ALARM icons blink. |
+| `/dev/tft/heater` | read/write | `0`-`100`, mirrors `/dev/heater` → drives the heater-rod's fill color + heat rays. |
 
 ## Programs (`bin/...`, run from the shell as bare names)
 
@@ -182,6 +189,7 @@ print a short error instead of doing something silently wrong.
 | `alarmcheck` | `alarmcheck` | Safety relay control + the three alarm conditions (heater/temphigh/templow), self-paced to ~15s. Drives `/dev/relay` and `/dev/alarm/*`. Ungated — runs the same in manual or auto mode. |
 | `alarm` | `alarm <cond-device> [<cond-device> ...]` | ORs the given condition devices, drives `/dev/alarm`, honors the mute button. Runs at the normal ~150ms job cadence, deliberately not self-paced like `alarmcheck` — a mute press needs to register fast. |
 | `ledwire` | `ledwire` | Drives all 7 front-panel LEDs from their fixed condition sources (mode, phase, alarm conditions), one job. |
+| `tftwire` | `tftwire` | Drives the ST7735 display's `/dev/tft/*` from the same condition sources as `ledwire`, one job. The display's own redraw/blink rate is separate — a kernel task (`tftflush`), not this job. |
 
 ## Recipes
 
@@ -215,8 +223,9 @@ the display/button UI jobs — `follow`'s own line never changes shape
 no matter how much richer the auto side gets, since everything
 upstream funnels into one `/dev/autopower`. This exact recipe is baked
 in as the `boot` script (see [Using the shell](#using-the-shell)) and
-runs automatically at every power-up — `run boot` also does all twelve
-lines at once on demand, e.g. after a `kill` of everything mid-session:
+runs automatically at every power-up — `run boot` also does all
+thirteen lines at once on demand, e.g. after a `kill` of everything
+mid-session:
 ```
 follow /dev/heaterauto /dev/setpoint /dev/percent /dev/seg7small &
 toggle /dev/buttons/manual /dev/heaterauto &
@@ -230,6 +239,7 @@ cat /dev/skintemp > /dev/seg7big &
 alarmcheck &
 alarm /dev/alarm/heater /dev/alarm/temphigh /dev/alarm/templow &
 ledwire &
+tftwire &
 ```
 
 Manage what's running:
@@ -314,6 +324,18 @@ favors composing small independent pieces — these seven mappings are
 fixed, known wiring, not something to mix and match, same call
 `monitor` already made for reading many devices into one status line.
 
+`tftwire` is `ledwire`'s sibling for a second front panel: a 1.8"
+ST7735 LCD, additive alongside the LEDs (nothing removed), driven from
+the same source devices minus `warm` (redundant with the heater-rod's
+own color on screen) plus a new `heater` (0-100, a continuous value
+LEDs couldn't show). The display itself lives entirely behind a
+vendored blackbox driver (`tft/`, copied from the separate `st7735`
+repo — see `tft/README.md`); `dev/tft.cpp` and `tftwire` only ever
+touch its `display_init()`/`display_update()` entry points. Redraw and
+blink animation run off a dedicated kernel task (`tftflush`, 20ms), not
+a job — the display keeps animating even if `tftwire` gets `kill`ed,
+it just stops picking up new state.
+
 Still deliberately not brought back (see `prog/phase.cpp`'s header
 comment for the reasoning): the setpoint-jump-triggers-reboost path.
 
@@ -325,5 +347,6 @@ comment for the reasoning): the setpoint-jump-triggers-reboost path.
 - `jobs.h`/`jobs.cpp` — pipeline execution (`|`/`<`/`>`) and background job control (`&`/`jobs`/`kill`), built entirely on top of `kernel/task.h` — no scheduler changes needed even for `sleep`/button-driven jobs.
 - `shell.cpp` — `task_shell`, the interactive `%` prompt.
 - `dev/*.cpp`, `prog/*.cpp` — one file per device/program, each self-contained.
+- `tft/` — vendored ST7735 driver (blackbox, unmodified copy of the separate `st7735` repo). `dev/tft.cpp` is the only picoos file that includes it.
 
 Known, documented limitations live in the source comments where they're relevant (e.g. `hyst`/`follow`'s single shared state if run twice concurrently, `JOB_POLL_MS`'s one fixed interval for all background jobs) — grep for "not solved" if curious.

@@ -130,7 +130,8 @@ typedef struct {
     "cat /dev/skintemp > /dev/seg7big &\n" \
     "alarmcheck &\n" \
     "alarm /dev/alarm/heater /dev/alarm/temphigh /dev/alarm/templow &\n" \
-    "ledwire &\n"
+    "ledwire &\n" \
+    "tftwire &\n"
 
 static script_t scripts[SCRIPT_MAX] = {
     { true, "boot", BOOT_SCRIPT_TEXT },

@@ -33,6 +33,13 @@ add_executable(picoos
     dev/ambient.cpp
     dev/phase.cpp
     dev/alarmcheck.cpp
+    dev/tft.cpp
+    tft/st7735.c
+    tft/gfx.c
+    tft/icons.c
+    tft/baby.c
+    tft/heat_indicator.c
+    tft/display.c
     prog/cat.cpp
     prog/echo.cpp
     prog/thresh.cpp
@@ -48,6 +55,7 @@ add_executable(picoos
     prog/alarmcheck.cpp
     prog/alarm.cpp
     prog/ledwire.cpp
+    prog/tftwire.cpp
     prog/ls.cpp
 )
 add_subdirectory("../pico-onewire" pico_one_wire)

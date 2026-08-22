@@ -108,6 +108,7 @@ int main()
     stdio_init_all();
     setup_gpios();
     init_seg7();
+    tft_init();
 
     // boot on delay
     sleep_ms(2000);
@@ -147,6 +148,7 @@ int main()
     ambient_register();
     phase_devices_register();
     alarmcheck_devices_register();
+    tft_devices_register();
 
     cat_register();
     echo_register();
@@ -163,11 +165,17 @@ int main()
     alarmcheck_register();
     alarmctl_register();
     ledwire_register();
+    tftwire_register();
     ls_register();
     jobs_init();
 
-    task_register("shell", task_shell,            30); // 30ms: responsive to typing
-    task_register("tpo",   tpo_apply, TPO_INTERVAL_TIME); // applies /dev/heater's value
+    task_register("shell",    task_shell,            30); // 30ms: responsive to typing
+    task_register("tpo",      tpo_apply, TPO_INTERVAL_TIME); // applies /dev/heater's value
+    task_register("tftflush", tft_flush_task,         20); // ST7735 redraw/blink -- a
+        // task, not a job slot, so it can't be `kill`ed: the display keeps
+        // animating even if bin/tftwire (the job) is killed. 20ms is well
+        // under display_update()'s own blink periods (250/500ms) -- see
+        // dev/tft.cpp.
 
     while(1) {
         task_run();

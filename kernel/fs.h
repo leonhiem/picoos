@@ -15,7 +15,7 @@
  */
 #pragma once
 
-#define FS_MAX_DEVICES 48 // 2026-08-16: bumped from 16 after it silently
+#define FS_MAX_DEVICES 64 // 2026-08-16: bumped from 16 after it silently
                           // dropped /dev/setpoint -- registered 17th, past
                           // the old cap, with no warning at all. See fs.cpp.
                           // 2026-08-19: bumped from 32 -- dev/pid.cpp's six
@@ -23,6 +23,10 @@
                           // zero headroom), caught only by grepping the
                           // registration count before it became the same
                           // bug again.
+                          // 2026-08-23: bumped from 48 -- /dev/tft/*'s seven
+                          // devices would have landed at 47/48, one spare;
+                          // given real headroom this time instead of just
+                          // enough, same lesson as every prior bump here.
 #define FS_NAME_MAX    32
 
 typedef struct {

@@ -120,6 +120,9 @@ void pid_devices_register(void); // /dev/pid/{kp,ti,td,dt,integral,prevmeas}, /d
 void ambient_register(void);        // /dev/ambient, dev/ambient.cpp
 void phase_devices_register(void);  // /dev/state, /dev/autopower, /dev/safepower, dev/phase.cpp
 void alarmcheck_devices_register(void); // /dev/alarm/{heater,temphigh,templow}, dev/alarmcheck.cpp
+void tft_devices_register(void); // /dev/tft/{aut,man,chk,low,high,fail,heater}, dev/tft.cpp
+void tft_init(void);             // one-time ST7735 bring-up, call once from main()
+void tft_flush_task(void);       // periodic redraw/animation, register as a kernel task
 
 // prog/*.cpp -- register each program with kernel/prog.h's registry.
 void cat_register(void);
@@ -137,6 +140,7 @@ void select_register(void);
 void alarmcheck_register(void);
 void alarmctl_register(void);
 void ledwire_register(void);
+void tftwire_register(void);
 void ls_register(void);
 
 // shell.cpp
