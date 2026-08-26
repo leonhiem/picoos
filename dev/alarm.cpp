@@ -16,11 +16,12 @@
  * PIN_ALARM_LED is inverted in hardware (0 = lit) -- same convention
  * the old task_alarm used, carried over here.
  *
- * PIN_ALARM (the buzzer) is inverted too, on this board (0 = sounding)
- * -- caught in testing: babywarmer's own convention (1 = sounding) is
- * exactly backwards here, same category as the LED, just not
- * documented in babywarmer since presumably that board's buzzer driver
- * circuit isn't wired the same way.
+ * PIN_ALARM (the buzzer) was inverted too, on the original board
+ * wiring (0 = sounding) -- caught in testing, exactly backwards from
+ * babywarmer's own convention (1 = sounding). A 2026-08-26 hardware
+ * change to the buzzer circuit flipped its polarity back to that
+ * normal (1 = sounding) convention, so PIN_ALARM no longer needs the
+ * inversion PIN_ALARM_LED still does.
  */
 #include "warmer.h"
 #include "kernel/fs.h"
@@ -30,17 +31,17 @@
 static int alarm_write(const char *buf, int len)
 {
     if (len >= 2 && strncmp(buf, "on", 2) == 0) {
-        gpio_put(PIN_ALARM, 0);
+        gpio_put(PIN_ALARM, 1);
         gpio_put(PIN_ALARM_LED, 0);
         return len;
     }
     if (len >= 5 && strncmp(buf, "muted", 5) == 0) {
-        gpio_put(PIN_ALARM, 1);
+        gpio_put(PIN_ALARM, 0);
         gpio_put(PIN_ALARM_LED, 0);
         return len;
     }
     if (len >= 3 && strncmp(buf, "off", 3) == 0) {
-        gpio_put(PIN_ALARM, 1);
+        gpio_put(PIN_ALARM, 0);
         gpio_put(PIN_ALARM_LED, 1);
         return len;
     }

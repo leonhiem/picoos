@@ -44,8 +44,11 @@ void setup_gpios(void)
     // outputs
     gpio_init(PIN_ALARM);
     gpio_set_dir(PIN_ALARM, GPIO_OUT);
-    gpio_put(PIN_ALARM, 1); // silent -- PIN_ALARM is inverted on this
-                             // board (0 = sounding), see dev/alarm.cpp
+    gpio_put(PIN_ALARM, 0); // silent -- PIN_ALARM was inverted (0 =
+                             // sounding) until a 2026-08-26 hardware
+                             // change to the buzzer wiring flipped it
+                             // back to normal (1 = sounding); see
+                             // dev/alarm.cpp
 
     gpio_init(PIN_ALARM_LED);
     gpio_set_dir(PIN_ALARM_LED, GPIO_OUT);
