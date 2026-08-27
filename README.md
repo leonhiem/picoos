@@ -168,6 +168,7 @@ print a short error instead of doing something silently wrong.
 | `/dev/tft/high` | read/write | Mirrors `/dev/alarm/temphigh` → red hot face, FAIL+ALARM icons blink. |
 | `/dev/tft/fail` | read/write | Mirrors `/dev/alarm/heater` → heater-rod blinks red↔grey, FAIL+ALARM icons blink. |
 | `/dev/tft/heater` | read/write | `0`-`100`, mirrors `/dev/heater` → drives the heater-rod's fill color + heat rays. |
+| `/dev/tft/apgar` | read/write | Raw forward of `/dev/buttons/start`: `on` (re)starts the on-screen APGAR `MM:SS` clock at 0. The display owns the clock itself — this device just pulses. |
 
 ## Programs (`bin/...`, run from the shell as bare names)
 
@@ -335,6 +336,13 @@ touch its `display_init()`/`display_update()` entry points. Redraw and
 blink animation run off a dedicated kernel task (`tftflush`, 20ms), not
 a job — the display keeps animating even if `tftwire` gets `kill`ed,
 it just stops picking up new state.
+
+Added 2026-08-28: an on-screen APGAR elapsed-time clock (`MM:SS`,
+flashes yellow at the real 1/5/10-minute checkpoints), owned entirely
+by the vendored display driver — picoos doesn't track time for this at
+all. `/dev/tft/apgar` is a raw forward of `/dev/buttons/start` (via
+`tftwire`); a press (re)starts the clock at 0, detected as a rising
+edge inside `display.c` itself.
 
 Still deliberately not brought back (see `prog/phase.cpp`'s header
 comment for the reasoning): the setpoint-jump-triggers-reboost path.

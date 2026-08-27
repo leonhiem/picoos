@@ -18,6 +18,14 @@
  *   high -- /dev/alarm/temphigh reads "on"
  *   fail -- /dev/alarm/heater reads "on"
  *   heater -- /dev/heater's numeric value, passed through as-is
+ *   apgar  -- /dev/buttons/start's read-and-clear "1"/"0", forwarded
+ *             as-is (added 2026-08-28, for the display's new APGAR
+ *             clock -- see dev/tft.cpp). Nothing computed here: the
+ *             button read already gives a one-shot pulse (auto-clears
+ *             after being seen), so one job tick sees "1" -> writes
+ *             /dev/tft/apgar on, the next tick reads "0" again ->
+ *             writes off. display.c does its own rising-edge detection
+ *             on that on/off transition.
  *
  * (ledwire's `warm` has no /dev/tft equivalent -- redundant with
  * heater's own color on the display, confirmed in the integration spec.)
@@ -89,6 +97,8 @@ static int tftwire_run(const char *in, int inlen, int argc, char **argv, char *o
             }
         }
     }
+
+    set_tft("/dev/tft/apgar", dev_is("/dev/buttons/start", "1"));
 
     return snprintf(out, outlen, "ok\n");
 }

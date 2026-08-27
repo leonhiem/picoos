@@ -8,10 +8,11 @@
 
 #include <math.h>
 
-#define N_RAYS    5
-#define RAY_SEGS  12
-#define RAY_AMP   2.2f
-#define TWO_PI    6.28318530718f
+#define N_RAYS       5
+#define RAY_SEGS     12
+#define RAY_AMP      2.2f
+#define RAY_THICK    2      /* ray stroke thickness, px */
+#define TWO_PI       6.28318530718f
 
 /* 6-stop palette across heater percent, per direction: grey (idle, same
  * grey as an "off" icon) -> light grey -> dark red -> red -> dark orange
@@ -95,7 +96,7 @@ void heat_indicator_update(int16_t elem_cx, int16_t elem_y, int16_t elem_w, int1
             float t = (float)s / RAY_SEGS;
             int16_t y = rays_top_y + (int16_t)(t * ray_span);
             int16_t x = rx + (int16_t)(RAY_AMP * sinf(TWO_PI * t));
-            gfx_line(prev_x, prev_y, x, y, color);
+            gfx_thick_line(prev_x, prev_y, x, y, RAY_THICK, color);
             prev_x = x;
             prev_y = y;
         }

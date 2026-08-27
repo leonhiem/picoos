@@ -1,7 +1,7 @@
 /**
  * dev/tft.cpp — /dev/tft/*: ST7735 front-panel display
  *
- * Mirrors dev/seg7.cpp's /dev/leds/<name> shape: seven independent
+ * Mirrors dev/seg7.cpp's /dev/leds/<name> shape: independent
  * read/write devices sharing one piece of shadow state. Unlike
  * dev/seg7.cpp's shift register though, there's no shiftregister here
  * and no hardware reason to push a frame out synchronously on every
@@ -23,6 +23,13 @@
  *   low/high -- mirrors /dev/alarm/{templow,temphigh}
  *   fail     -- mirrors /dev/alarm/heater
  *   heater   -- mirrors /dev/heater (0-100)
+ *
+ * Plus one more, added 2026-08-28 alongside the display's new APGAR
+ * clock:
+ *
+ *   apgar    -- raw forward of /dev/buttons/start (via prog/tftwire),
+ *               not derived/computed here -- see the apgar_start note
+ *               below.
  *
  * The actual rendering lives entirely behind tft/display.h's blackbox
  * API (display_init()/display_update()) -- this file and prog/tftwire
@@ -55,15 +62,20 @@ extern "C" {
 static bool    aut = true, man = false, chk = false;
 static bool    low = false, high = false, fail = false;
 static uint8_t heater = 0;
+static bool    apgar = false; // raw button forward, not a condition --
+                               // display.c does its own rising-edge
+                               // detection (see tft_flush_task below),
+                               // so this can just be whatever tftwire
+                               // last wrote, on or off.
 
 #define FAIL_BLINK_MS 500
 static bool            fail_blink_phase = false;
 static absolute_time_t fail_blink_next;
 
 /* ═══════════════════════════════════════════════════
-   /dev/tft/<name> -- seven independent read/write devices, one per
+   /dev/tft/<name> -- eight independent read/write devices, one per
    shadow field, same idea (and same hand-duplication tradeoff, fine at
-   seven) as dev/seg7.cpp's /dev/leds/<name>.
+   eight) as dev/seg7.cpp's /dev/leds/<name>.
    ═══════════════════════════════════════════════════ */
 static int bool_read(bool v, char *buf, int len)
 {
@@ -89,6 +101,8 @@ static int high_read(char *buf, int len)        { return bool_read(high, buf, le
 static int high_write(const char *buf, int len) { return bool_write(&high, buf, len); }
 static int fail_read(char *buf, int len)        { return bool_read(fail, buf, len); }
 static int fail_write(const char *buf, int len) { return bool_write(&fail, buf, len); }
+static int apgar_read(char *buf, int len)         { return bool_read(apgar, buf, len); }
+static int apgar_write(const char *buf, int len)  { return bool_write(&apgar, buf, len); }
 
 static int heater_read(char *buf, int len)
 {
@@ -111,6 +125,7 @@ static const device_t dev_tft_low    = {"/dev/tft/low",    0, 0, low_read,    lo
 static const device_t dev_tft_high   = {"/dev/tft/high",   0, 0, high_read,   high_write};
 static const device_t dev_tft_fail   = {"/dev/tft/fail",   0, 0, fail_read,   fail_write};
 static const device_t dev_tft_heater = {"/dev/tft/heater", 0, 0, heater_read, heater_write};
+static const device_t dev_tft_apgar  = {"/dev/tft/apgar",  0, 0, apgar_read,  apgar_write};
 
 void tft_devices_register(void)
 {
@@ -121,6 +136,7 @@ void tft_devices_register(void)
     fs_register(&dev_tft_high);
     fs_register(&dev_tft_fail);
     fs_register(&dev_tft_heater);
+    fs_register(&dev_tft_apgar);
 }
 
 /* One-time hardware bring-up (SPI, GPIOs, panel init sequence) --
@@ -175,6 +191,14 @@ void tft_flush_task(void)
         state.heater_failed  = false;
     }
     state.heater_on = state.heater_percent > 0;
+
+    // Raw forward -- display.c owns the APGAR clock entirely (tracks
+    // elapsed time, derives MM:SS and the checkpoint-flash window
+    // itself). It does its own rising-edge detection against its
+    // last-seen apgar_start, so passing the current level here (true
+    // while tftwire has it set, false once it clears) is enough to
+    // (re)start the clock exactly once per button press.
+    state.apgar_start = apgar;
 
     display_update(&state, to_ms_since_boot(get_absolute_time()));
 }

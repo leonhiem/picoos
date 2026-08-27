@@ -39,6 +39,7 @@ add_executable(picoos
     tft/icons.c
     tft/baby.c
     tft/heat_indicator.c
+    tft/apgar_timer.c
     tft/display.c
     prog/cat.cpp
     prog/echo.cpp

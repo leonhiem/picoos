@@ -49,7 +49,7 @@
 #define COLOR_MAGENTA       0xF81F
 #define COLOR_GREY          0x4208      /* dark grey for "off" icons */
 #define COLOR_LIGHT_GREY    0x8410
-#define COLOR_DIM_GREY      RGB565(32, 32, 32)  /* near-black: divider line,
+#define COLOR_DIM_GREY      RGB565(55, 55, 55)  /* dim grey: divider line,
                                                     matches the icon "off" grey */
 #define COLOR_SKIN          0xFE19      /* warm peach skin tone */
 #define COLOR_SKIN_COLD     0xDEFB      /* pale-blue skin */

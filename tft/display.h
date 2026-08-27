@@ -15,6 +15,7 @@
  *   grey vertical divider   (x = 33)
  *   heater bar + heat rays  (centered above the face)
  *   baby face (emoji)       (centered, a bit below screen middle)
+ *   APGAR timer (MM:SS)     (centered, between the face and the bottom edge)
  */
 #ifndef DISPLAY_H
 #define DISPLAY_H
@@ -41,6 +42,13 @@ typedef struct {
     bool         alarm;              /* red bell (urgent) */
     uint8_t      heater_percent;     /* 0..100 PID output */
     baby_state_t baby;               /* baby color/expression */
+    bool         apgar_start;        /* momentary trigger (e.g. a push
+                                       * button): a rising edge (re)starts
+                                       * the APGAR MM:SS clock at 0. The
+                                       * display owns the clock itself -
+                                       * caller doesn't compute elapsed
+                                       * time, just pulses this true for
+                                       * one call on button-press. */
 } warmer_display_state_t;
 
 /* Initialize the display layer (calls st7735_init internally

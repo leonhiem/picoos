@@ -15,6 +15,7 @@
 #include "icons.h"
 #include "baby.h"
 #include "heat_indicator.h"
+#include "apgar_timer.h"
 
 /* ---- layout constants ---- */
 #define BG_COLOR              COLOR_BLACK
@@ -43,6 +44,13 @@
 #define RAYS_TOP_Y            27
 #define RAYS_BOT_Y            58      /* just above the face (face top = 60) */
 
+/* APGAR timer (MM:SS), centered below the face and above the bottom edge.
+ * Face bottom sits at FACE_CENTER_Y + 40 = 140; screen bottom is 160,
+ * leaving a 20px band - the digit glyphs are baked at 16px tall
+ * (art/render_timer.py), so this centers with a couple px to spare. */
+#define TIMER_CX              79
+#define TIMER_Y               142
+
 /* ---- blink timing ---- */
 #define BLINK_PERIOD_WARNING_MS  500   /* slow */
 #define BLINK_PERIOD_ALARM_MS    250   /* fast */
@@ -55,6 +63,14 @@ typedef struct {
     bool                   blink_alarm_phase;
     uint32_t               last_warn_ms;
     uint32_t               last_alarm_ms;
+
+    /* APGAR clock, owned entirely by the display: the caller just
+     * pulses state->apgar_start true on a button press (rising edge
+     * (re)starts the clock at 0); everything else - elapsed time,
+     * checkpoint flashing - is computed here. */
+    bool                   apgar_running;
+    uint32_t               apgar_start_ms;
+    uint32_t               last_apgar_elapsed_s;
 } display_ctx_t;
 
 static display_ctx_t ctx;
@@ -118,6 +134,12 @@ static void render_heat_indicator(const warmer_display_state_t *s) {
                            s->heater_percent, s->heater_failed, BG_COLOR);
 }
 
+static void render_apgar_timer(uint32_t elapsed_s, bool blink_phase) {
+    bool in_window = apgar_timer_in_checkpoint_window(elapsed_s);
+    apgar_timer_draw(TIMER_CX, TIMER_Y, elapsed_s,
+                      in_window && blink_phase, BG_COLOR);
+}
+
 /* ---- public API ---- */
 
 void display_init(void) {
@@ -139,6 +161,7 @@ void display_init(void) {
     render_alarm_icon(&blank, true);
     render_baby(&blank);
     render_heat_indicator(&blank);
+    render_apgar_timer(0, true);
 
     memset(&ctx, 0, sizeof(ctx));
     ctx.initialized       = true;
@@ -189,6 +212,24 @@ void display_update(const warmer_display_state_t *state, uint32_t now_ms) {
     if (state->heater_percent != ctx.last.heater_percent ||
         state->heater_failed  != ctx.last.heater_failed) {
         render_heat_indicator(state);
+    }
+
+    /* rising edge on apgar_start (re)starts the clock at 0 */
+    bool apgar_edge = state->apgar_start && !ctx.last.apgar_start;
+    if (apgar_edge) {
+        ctx.apgar_running  = true;
+        ctx.apgar_start_ms = now_ms;
+    }
+
+    uint32_t apgar_elapsed_s = ctx.apgar_running
+        ? (uint32_t)(now_ms - ctx.apgar_start_ms) / 1000
+        : 0;
+    bool apgar_in_window = apgar_timer_in_checkpoint_window(apgar_elapsed_s);
+    if (apgar_edge ||
+        apgar_elapsed_s != ctx.last_apgar_elapsed_s ||
+        (apgar_in_window && warn_changed)) {
+        render_apgar_timer(apgar_elapsed_s, ctx.blink_warn_phase);
+        ctx.last_apgar_elapsed_s = apgar_elapsed_s;
     }
 
     ctx.last = *state;
