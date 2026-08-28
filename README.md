@@ -169,6 +169,10 @@ print a short error instead of doing something silently wrong.
 | `/dev/tft/fail` | read/write | Mirrors `/dev/alarm/heater` → heater-rod blinks red↔grey, FAIL+ALARM icons blink. |
 | `/dev/tft/heater` | read/write | `0`-`100`, mirrors `/dev/heater` → drives the heater-rod's fill color + heat rays. |
 | `/dev/tft/apgar` | read/write | Raw forward of `/dev/buttons/start`: `on` (re)starts the on-screen APGAR `MM:SS` clock at 0. The display owns the clock itself — this device just pulses. |
+| `/dev/tft/mode` | read/write | `graphical` (default) or `text` — switches the whole screen between the warmer UI and a full-screen ASCII console. |
+| `/dev/tft/seek` | write-only | Moves the text-console cursor to a row (`0`-`15`). Rejected (`-1`) unless `/dev/tft/mode` is `text`. |
+| `/dev/tft/text` | read/write | Writes a line at the cursor row, then the cursor auto-advances — `echo Heater: 42 % > /dev/tft/text` just works. Rejected unless mode is `text`. |
+| `/dev/tft/clear` | write-only | Wipes the text console and homes the cursor, without leaving text mode. Rejected unless mode is `text`. |
 
 ## Programs (`bin/...`, run from the shell as bare names)
 
@@ -343,6 +347,26 @@ by the vendored display driver — picoos doesn't track time for this at
 all. `/dev/tft/apgar` is a raw forward of `/dev/buttons/start` (via
 `tftwire`); a press (re)starts the clock at 0, detected as a rising
 edge inside `display.c` itself.
+
+Added 2026-08-29: a second screen mode, a full-screen 21x16 ASCII text
+console (`/dev/tft/mode`, `text` vs. `graphical`), driven by a small
+seek/write/clear command set that mirrors real file I/O — `seek`
+positions the cursor (`lseek()`), `write` lands a line there and
+auto-advances the cursor (a real file's write-advances-the-offset
+behavior), `clear` wipes the screen and homes the cursor. `bin/echo`
+already works against it unmodified, via the shell's existing `>`
+redirect: `echo Heater: 42 % > /dev/tft/text`. All four devices are
+purely mode-gated, not condition-mirrored — nothing in `tftwire` drives
+them, they're meant to be typed or scripted directly (e.g. a future
+debug/status job). Writing to `seek`/`text`/`clear` while mode is
+`graphical` is rejected (`-1`) rather than silently ignored, even
+though `display.c` already no-ops text commands internally while
+graphical is on screen. The graphical UI itself also picked up two
+small additions from the same re-sync: a second (horizontal) divider
+under the face, and two small permanent label icons (thermometer next
+to the face, clock next to the APGAR timer) disambiguating "this row is
+about temperature" from "this row is a clock reading" — no state-struct
+changes, pure layout.
 
 Still deliberately not brought back (see `prog/phase.cpp`'s header
 comment for the reasoning): the setpoint-jump-triggers-reboost path.

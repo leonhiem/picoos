@@ -8,7 +8,14 @@
  * Blinking is driven by a single boolean toggled internally by a
  * timer, so all blinking icons stay in sync.
  *
- * Layout (128x160 portrait):
+ * Two display modes, selected by `screen_mode` on the state struct:
+ *
+ *   DISPLAY_MODE_GRAPHICAL (0, default) - the warmer UI below.
+ *   DISPLAY_MODE_TEXT      (1)          - a full-screen 21x16 fixed-font
+ *                                         ASCII console, see `text` below
+ *                                         and text_console.h.
+ *
+ * Graphical layout (128x160 portrait):
  *
  *   icon column on LEFT     (x = 0..30, full height, 4 icons:
  *                            FAIL / ALARM / SENSOR / MODE top to bottom)
@@ -24,11 +31,32 @@
 #include <stdbool.h>
 
 #include "baby.h"
+#include "text_console.h"
 
 typedef enum {
     MODE_AUTO   = 0,
     MODE_MANUAL = 1,
 } warmer_mode_t;
+
+/* Which of the two display modes is on screen. 0 = graphical is the
+ * default so that any caller which doesn't yet know about text mode
+ * (a zero-initialized or partially-filled state struct) keeps getting
+ * today's graphical UI, unchanged - this field is purely additive. */
+typedef enum {
+    DISPLAY_MODE_GRAPHICAL = 0,
+    DISPLAY_MODE_TEXT      = 1,
+} display_mode_t;
+
+/* Text-mode commands, dispatched from `warmer_display_state_t.text`.
+ * Only one command can be "in flight" per struct - bump `seq` to fire
+ * whatever `cmd` currently says; display.c edge-detects the seq change
+ * the same way it already does for apgar_start. */
+typedef enum {
+    TEXT_CMD_NONE  = 0,
+    TEXT_CMD_CLEAR = 1,   /* clear the whole text screen, cursor -> row 0 */
+    TEXT_CMD_SEEK  = 2,   /* move the cursor to `.row` */
+    TEXT_CMD_WRITE = 3,   /* write `.line` at the cursor row, then cursor++ */
+} text_cmd_t;
 
 /* Current state of the warmer that the display reflects.
  * The main loop fills this in, then calls display_update().
@@ -48,7 +76,25 @@ typedef struct {
                                        * display owns the clock itself -
                                        * caller doesn't compute elapsed
                                        * time, just pulses this true for
-                                       * one call on button-press. */
+                                       * one call on button-press. Keeps
+                                       * running regardless of
+                                       * `screen_mode`. */
+
+    display_mode_t screen_mode;      /* DISPLAY_MODE_GRAPHICAL (default)
+                                       * or DISPLAY_MODE_TEXT - see above.
+                                       * (Named separately from `mode`
+                                       * above, which is auto/manual.) */
+    struct {
+        text_cmd_t cmd;               /* which command `seq` fires */
+        uint32_t   seq;               /* bump to fire `cmd` (edge-detected
+                                        * against the previous call, same
+                                        * pattern as apgar_start) */
+        uint8_t    row;                /* TEXT_CMD_SEEK's target row */
+        char       line[TEXT_COLS + 1]; /* TEXT_CMD_WRITE's payload - NUL-
+                                        * terminated; extra bytes past the
+                                        * NUL are ignored, missing columns
+                                        * are blank-padded on screen */
+    } text;                          /* only used while screen_mode == DISPLAY_MODE_TEXT */
 } warmer_display_state_t;
 
 /* Initialize the display layer (calls st7735_init internally

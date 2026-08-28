@@ -2,8 +2,8 @@
 
 Everything in this directory is copied, unmodified, from
 `../../st7735/input/` (github.com/leonhiem/st7735) — last re-synced
-2026-08-28 (APGAR clock). It is not built or maintained here — treat
-it as a blackbox.
+2026-08-29 (text console mode + graphical-mode cue icons/divider). It
+is not built or maintained here — treat it as a blackbox.
 
 If the `st7735` repo's display gets improved (new icons, layout
 changes, bugfixes), re-copy the same file list from there:
@@ -15,6 +15,8 @@ icons.c icons.h icon_bitmaps.h
 baby.c baby.h face_bitmaps.h
 heat_indicator.c heat_indicator.h
 apgar_timer.c apgar_timer.h digit_bitmaps.h
+text_console.c text_console.h font_bitmaps.h
+cue_icons.c cue_icons.h cue_icon_bitmaps.h
 display.c display.h
 ```
 

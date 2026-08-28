@@ -1,7 +1,8 @@
 /*
  * apgar_timer.c - Blits the 5 fixed-size glyph cells (MM:SS) that make up
- * the APGAR timer, and flashes it yellow around the standard APGAR
- * checkpoints. See apgar_timer.h and input/art/render_timer.py.
+ * the APGAR timer, and flashes it as a solid black-on-yellow block around
+ * the standard APGAR checkpoints. See apgar_timer.h and
+ * input/art/render_timer.py.
  */
 #include "apgar_timer.h"
 #include "st7735.h"

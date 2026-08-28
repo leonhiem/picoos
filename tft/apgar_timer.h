@@ -15,11 +15,13 @@
  * `bg` is unused (glyph bitmaps are full-bleed) but kept for call-site
  * symmetry with the other render_*() helpers.
  *
- * `highlight` selects the yellow "attention" glyph set instead of the
- * normal white one - the caller (display.c) turns this on/off in sync
- * with the shared blink timer to flash the readout around the standard
- * APGAR checkpoints (1 min / 5 min / 10 min after birth). See
- * apgar_timer_in_checkpoint_window(). */
+ * `highlight` selects the "attention" glyph set instead of the normal
+ * white-on-black one: a solid block, black digits on a filled yellow
+ * cell, not just colored text - a plain color swap on 5x16px digits
+ * read as too subtle on the bench. The caller (display.c) turns this
+ * on/off in sync with the shared blink timer to flash the readout
+ * around the standard APGAR checkpoints (1 min / 5 min / 10 min after
+ * birth). See apgar_timer_in_checkpoint_window(). */
 void apgar_timer_draw(int16_t cx, int16_t y, uint32_t total_seconds,
                        bool highlight, uint16_t bg);
 
