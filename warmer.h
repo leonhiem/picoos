@@ -66,7 +66,7 @@ typedef struct led_s {
 #define TPO_INTERVAL_TIME (100) /* 100 ms: how often tpo_apply() ticks */
 
 #define PWM_SLICE_NUM 0
-#define PWM_WRAP_VAL 0xFFFF
+#define PWM_WRAP_VAL 41666 // top; with clkdiv=1 -> 125e6/1/41667=3000.01 Hz (was 50Hz/0xFFFF)
 
 // ═══════════════════════════════════════════════════
 // Shared mutable state -- just the button debounce arrays now.

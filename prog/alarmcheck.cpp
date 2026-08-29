@@ -84,6 +84,8 @@
 static bool have_next_step = false;
 static absolute_time_t next_step;
 static bool first_check = true;
+static bool have_last_mode = false;
+static bool last_mode = false;
 
 static float read_dev(const char *path, float fallback)
 {
@@ -95,6 +97,18 @@ static float read_dev(const char *path, float fallback)
     if (n < 0) return fallback;
     buf[n] = '\0';
     return strtof(buf, 0);
+}
+
+static bool read_dev_bool(const char *path, bool fallback)
+{
+    int fd = fs_open(path);
+    if (fd < 0) return fallback;
+    char buf[8];
+    int n = fs_read(fd, buf, sizeof(buf) - 1);
+    fs_close(fd);
+    if (n < 0) return fallback;
+    buf[n] = '\0';
+    return strncmp(buf, "on", 2) == 0;
 }
 
 static void write_dev(const char *path, const char *v)
@@ -109,7 +123,22 @@ static int alarmcheck_run(const char *in, int inlen, int argc, char **argv, char
 {
     (void)in; (void)inlen; (void)argc; (void)argv;
 
-    if (have_next_step && absolute_time_diff_us(get_absolute_time(), next_step) > 0) {
+    // Cheap every-tick check (like the timestamp compare below): a
+    // manual<->auto flip via /dev/heaterauto can instantly change what
+    // heaterpower *should* be, which can resolve (or cause) a heater-fail
+    // condition -- but that condition only gets re-evaluated below on this
+    // job's own 15s cadence. Without this, /dev/alarm/heater (and the
+    // buzzer reading it in prog/alarm.cpp) can sit on a stale verdict for
+    // up to 15s after a mode switch. Detecting the flip and forcing the
+    // real check to run right now, same tick, fixes that -- have_last_mode
+    // suppresses a false "changed" on the very first tick, same reason
+    // first_check exists below.
+    bool mode = read_dev_bool("/dev/heaterauto", last_mode);
+    bool mode_changed = have_last_mode && (mode != last_mode);
+    last_mode = mode;
+    have_last_mode = true;
+
+    if (!mode_changed && have_next_step && absolute_time_diff_us(get_absolute_time(), next_step) > 0) {
         return snprintf(out, outlen, "-\n"); // not due yet
     }
     next_step = make_timeout_time_ms(CHECK_INTERVAL_MS);

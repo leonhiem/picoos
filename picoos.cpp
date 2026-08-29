@@ -92,7 +92,8 @@ void setup_gpios(void)
     gpio_set_function(PIN_SSR_BARGRPH, GPIO_FUNC_PWM);
 
     pwm_config config = pwm_get_default_config();
-    pwm_config_set_clkdiv_int(&config,38); // 125e6/38/65535=50.19415097 Hz
+    pwm_config_set_clkdiv_int(&config, 1); // fastest divider available
+    pwm_config_set_wrap(&config, PWM_WRAP_VAL); // ~3kHz -- see warmer.h comment
     pwm_init(PWM_SLICE_NUM, &config, true);
 
     pwm_set_chan_level(PWM_SLICE_NUM, PWM_CHAN_A, 0);
