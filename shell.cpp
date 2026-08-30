@@ -156,8 +156,33 @@ typedef struct {
     "ledwire &\n" \
     "tftwire &\n"
 
+// TFT text-console status screen -- one /dev/tft/text row per monitor
+// field, via prog/label.cpp for the "name = value" formatting and
+// /dev/tft/seek's auto-advancing cursor for the rest. Seeded here the
+// same way BOOT_SCRIPT_TEXT is (baked into the image, survives a
+// reboot with no EEPROM/flash persistence needed) but deliberately
+// *not* auto-run -- unlike "boot", task_shell() only ever looks up
+// "boot" by name at startup, so this just sits in the table until
+// someone types `run tftmon` (once) or `loop tftmon` (redraws forever,
+// Ctrl-C to stop -- see the `loop` header comment above).
+#define TFTMON_SCRIPT_TEXT \
+    "echo text > /dev/tft/mode\n" \
+    "echo 0 > /dev/tft/seek\n" \
+    "label auto = /dev/heaterauto > /dev/tft/text\n" \
+    "label phase = /dev/state > /dev/tft/text\n" \
+    "label setp = /dev/setpoint > /dev/tft/text\n" \
+    "label skin = /dev/skintemp > /dev/tft/text\n" \
+    "label amb = /dev/ambient > /dev/tft/text\n" \
+    "label heat = /dev/heater > /dev/tft/text\n" \
+    "label curr = /dev/current > /dev/tft/text\n" \
+    "label pid = /dev/pidout > /dev/tft/text\n" \
+    "label pct = /dev/percent > /dev/tft/text\n" \
+    "label integ = /dev/pid/integral > /dev/tft/text\n" \
+    "sleep 1000\n"
+
 static script_t scripts[SCRIPT_MAX] = {
-    { true, "boot", BOOT_SCRIPT_TEXT },
+    { true, "boot",   BOOT_SCRIPT_TEXT },
+    { true, "tftmon", TFTMON_SCRIPT_TEXT },
 };
 
 static bool sleeping = false;
