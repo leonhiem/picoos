@@ -45,6 +45,7 @@ add_executable(picoos
     tft/display.c
     prog/cat.cpp
     prog/echo.cpp
+    prog/label.cpp
     prog/thresh.cpp
     prog/hyst.cpp
     prog/toggle.cpp

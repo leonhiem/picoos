@@ -156,6 +156,7 @@ int main()
 
     cat_register();
     echo_register();
+    label_register();
     thresh_register();
     hyst_register();
     toggle_register();

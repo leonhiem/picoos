@@ -75,6 +75,29 @@
  * retrofit onto sleep/run's existing, already-relied-on "nothing
  * typed is ever lost" contract.
  *
+ * `loop <name>` -- like `run`, but when the script reaches its end it
+ * restarts from the top automatically instead of stopping, forever
+ * until Ctrl-C (ASCII ETX, 0x03) -- same convention `watch` already
+ * uses, reused rather than reinvented. Exists because this shell has
+ * no while/for construct, so a script wanting to redraw something
+ * "every second, forever" (e.g. a TFT text-mode status screen) has no
+ * other way to repeat itself; a script can't just `run` itself at its
+ * own end either, since `run`'s "already running" guard (see below)
+ * refuses while `running` is still true, which it is for the entire
+ * body of the script currently executing. `loop` reuses that exact
+ * `running`/`run_buf`/`run_pos` machinery -- it's still one line per
+ * tick, still resumable through `sleep` mid-script -- only adding the
+ * restart-instead-of-stop behavior and the Ctrl-C poll needed to break
+ * out of it. That poll has to happen from inside the `running` block
+ * itself (unlike `watching`'s own, which lives in its own top-level
+ * branch): a plain `run` never reads stdin while replaying (nothing
+ * typed mid-script is lost, it just waits, per the header comment
+ * above), so without this a `loop` would have no way to ever be
+ * stopped short of a reset. One consequence worth knowing: Ctrl-C
+ * isn't seen until the current script line (or `sleep`) finishes, same
+ * granularity tradeoff `watch` already has, and fine for the same
+ * reason -- sub-second in practice, not an indefinite hang.
+ *
  * A "boot" script comes pre-loaded into scripts[0] -- baked into the
  * firmware image itself (BOOT_SCRIPT_TEXT below), not written to any
  * storage, so it's back after every reboot without needing EEPROM or
@@ -148,6 +171,20 @@ static int  capture_len = 0;
 static bool running = false;      // a script is being replayed, one line per tick
 static char run_buf[SCRIPT_TEXT_MAX];
 static int  run_pos = 0;          // offset of the next unread line in run_buf
+static bool looping = false;      // `loop` instead of `run`: restart run_buf from
+                                   // the top when it ends, instead of stopping --
+                                   // see the header comment's `loop` entry
+static int  run_slot = -1;        // which scripts[] entry run_buf was last loaded
+                                   // from -- needed to refresh it on a loop
+                                   // restart (see the header comment's `loop`
+                                   // entry: run_step() mutates run_buf in place
+                                   // as it goes, both its own '\n'->'\0' split
+                                   // and dispatch()'s strtok() collapsing every
+                                   // space to '\0' too, so replaying the same
+                                   // bytes a second time without reloading them
+                                   // from the pristine scripts[] copy first
+                                   // reads back garbage -- every previously-run
+                                   // line has shrunk to just its first word)
 
 static bool watching = false;
 static pipeline_t watch_pipeline;
@@ -306,8 +343,24 @@ static void dispatch(char *line)
         strncpy(run_buf, scripts[slot].text, SCRIPT_TEXT_MAX - 1);
         run_buf[SCRIPT_TEXT_MAX - 1] = '\0';
         run_pos = 0;
+        run_slot = slot;
         running = true;
         return; // task_shell() drives it from here, one line per tick -- see run_step()
+    }
+    if (strcmp(tok[0], "loop") == 0) {
+        if (ntok < 2) { printf("usage: loop <name>\n"); return; }
+        if (running) { printf("loop: already running a script\n"); return; }
+        int slot = find_script(tok[1]);
+        if (slot < 0) { printf("loop: no such script '%s'\n", tok[1]); return; }
+        strncpy(run_buf, scripts[slot].text, SCRIPT_TEXT_MAX - 1);
+        run_buf[SCRIPT_TEXT_MAX - 1] = '\0';
+        run_pos = 0;
+        run_slot = slot;
+        running = true;
+        looping = true;
+        printf("looping '%s' -- Ctrl-C to stop\n", tok[1]);
+        return; // task_shell() drives it from here -- see run_step() and the
+                 // `if (running)` block's own looping/Ctrl-C handling
     }
     if (strcmp(tok[0], "watch") == 0) {
         if (ntok < 3) { printf("usage: watch <ms> <stage> [| stage ...] [< path]\n"); return; }
@@ -373,6 +426,7 @@ void task_shell(void)
         printf("  ls            list /dev and bin/\n");
         printf("  jobs, kill    manage background pipelines\n");
         printf("  script, run   record and replay command sequences\n");
+        printf("  loop          like run, but repeats forever, Ctrl-C to stop\n");
         printf("  watch         repeat a pipeline every <ms>, Ctrl-C to stop\n");
         banner_shown = true;
 
@@ -405,7 +459,45 @@ void task_shell(void)
 
     if (running) {
         run_step();
-        if (!running && !sleeping) print_prompt(); // script just finished, and didn't end mid-sleep
+        if (!running) {
+            if (looping) {
+                // Script reached its end -- restart it instead of stopping.
+                // run_buf must be reloaded from the pristine scripts[]
+                // text, not just rewound -- run_step() below and
+                // dispatch()'s own strtok() both mutate run_buf's bytes
+                // in place as a line is consumed ('\n' and every space
+                // become '\0'), which a plain `run` never revisits but a
+                // restart would, reading back a shredded first word of
+                // each line instead of the real line. Re-copying here
+                // undoes that damage before line 1 runs again; next
+                // tick's run_step() then picks up line 1 fresh, same
+                // "picked up same shape, next tick" pattern task_shell()'s
+                // own boot auto-run already uses.
+                strncpy(run_buf, scripts[run_slot].text, SCRIPT_TEXT_MAX - 1);
+                run_buf[SCRIPT_TEXT_MAX - 1] = '\0';
+                run_pos = 0;
+                running = true;
+            } else if (!sleeping) {
+                print_prompt(); // script just finished, and didn't end mid-sleep
+            }
+        }
+        if (looping) {
+            // A plain `run` never reads stdin while replaying (see header
+            // comment) -- but a loop never stops on its own, so it needs
+            // its own Ctrl-C poll, same convention `watching` below uses.
+            int c;
+            while ((c = getchar_timeout_us(0)) != PICO_ERROR_TIMEOUT) {
+                if (c == 3) { // Ctrl-C
+                    looping = false;
+                    running = false;
+                    printf("(loop stopped)\n");
+                    print_prompt();
+                    break;
+                }
+                // anything else typed while looping is discarded, on purpose --
+                // same reasoning as `watching`'s own poll below
+            }
+        }
         return; // script lines advance one per tick; don't also read keyboard input this tick
     }
 

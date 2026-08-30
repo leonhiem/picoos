@@ -127,6 +127,7 @@ void tft_flush_task(void);       // periodic redraw/animation, register as a ker
 // prog/*.cpp -- register each program with kernel/prog.h's registry.
 void cat_register(void);
 void echo_register(void);
+void label_register(void); // label <word...> <device>, prog/label.cpp
 void thresh_register(void);
 void hyst_register(void);
 void toggle_register(void);
