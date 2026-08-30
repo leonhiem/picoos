@@ -15,11 +15,17 @@
  * Per real check, reading /dev/skintemp, /dev/setpoint, /dev/heater
  * (read/write), and /dev/current:
  *
- *   1. skin > setpoint + OVERTEMP_MARGIN -> force /dev/relay off,
- *      skip everything else this check (matches the original's own
- *      early return -- an overtemp trip isn't what "heater fail" means
- *      here, and temphigh/templow are skipped this tick too since the
- *      relay's already been forced off, the more urgent action).
+ *   1. skin > setpoint + OVERTEMP_MARGIN -> force /dev/relay off, skip
+ *      the current-sense heater-fail check this tick (matches the
+ *      original's own early return -- an overtemp trip isn't what
+ *      "heater fail" means here, and current-sense is meaningless once
+ *      the relay's already been forced off regardless of what it says).
+ *      temphigh/templow are NOT skipped though (2026-08-30 fix) --
+ *      unlike current-sense they don't depend on relay state, and
+ *      skipping them let an overtemp condition (typically also above
+ *      TEMPHIGH_C) permanently starve /dev/alarm/temphigh, silencing
+ *      the TFT's BABY_HOT face and prog/alarm.cpp's buzzer for exactly
+ *      the case that most needs them.
  *   2. heaterpower > 0 -> /dev/relay on.
  *   3. heaterpower > HIGH_POWER_THRESHOLD but current-sense is still
  *      low -> /dev/alarm/heater on (heating hard, current-sense
@@ -31,7 +37,7 @@
  *      /dev/alarm/temphigh or /dev/alarm/templow.
  *
  * TEMPHIGH_C/TEMPLOW_C are Leon's own fixed testing values (40°C,
- * 10°C) -- deliberately not babywarmer's original logic, which instead
+ * 23°C) -- deliberately not babywarmer's original logic, which instead
  * checked skin against setpoint+2 and ambient-2 (relative margins,
  * computed every 1s inside task_sensor, not this 15s check). Simpler
  * fixed thresholds, on purpose, for now -- easy to trigger on a bench
@@ -79,7 +85,10 @@
 #define HIGH_POWER_THRESHOLD   50.0f  // heaterpower above this counts as "heating hard"
 #define CURRENT_FAIL_THRESHOLD 50     // raw ADC counts, matches babywarmer's own literal "50"
 #define TEMPHIGH_C             40.0f  // Leon's fixed testing threshold, "for now"
-#define TEMPLOW_C              10.0f  // Leon's fixed testing threshold, "for now"
+#define TEMPLOW_C              23.0f  // Leon's fixed testing threshold, "for now" -- just
+                                       // above the recalibrated ntc_lut.h's floor (22.9C,
+                                       // see that file's own header comment), so it's
+                                       // actually reachable with the temporary NTC in place
 
 static bool have_next_step = false;
 static absolute_time_t next_step;
@@ -149,32 +158,43 @@ static int alarmcheck_run(const char *in, int inlen, int argc, char **argv, char
     float heaterpower  = read_dev("/dev/heater", 0.0f);
     float curr         = read_dev("/dev/current", 0.0f);
 
-    if (skin > (setpoint + OVERTEMP_MARGIN)) {
+    bool overtemp = skin > (setpoint + OVERTEMP_MARGIN);
+    bool fail = false;
+
+    if (overtemp) {
+        // Current-sense heater-fail check doesn't apply here -- relay's
+        // being forced off regardless of what current-sense says, so
+        // skip straight past it (matches the original's own early
+        // return for this one check). temphigh/templow do NOT depend on
+        // relay state though, so -- unlike the original -- they still
+        // get evaluated below: skipping them here meant an overtemp
+        // condition (which by construction is *also* usually above
+        // TEMPHIGH_C) could permanently starve /dev/alarm/temphigh of
+        // ever going "on", silencing both the TFT's BABY_HOT face and
+        // prog/alarm.cpp's buzzer for exactly the most dangerous case.
         write_dev("/dev/relay", "off");
         write_dev("/dev/alarm/heater", "off"); // fail starts false every check, same as the original
-        first_check = false;
-        return snprintf(out, outlen, "overtemp: relay off\n");
-    }
-
-    if (heaterpower > 0.0f) {
-        write_dev("/dev/relay", "on");
-    }
-
-    bool fail = false;
-    if (heaterpower > HIGH_POWER_THRESHOLD) {
-        if (curr < CURRENT_FAIL_THRESHOLD && !first_check) fail = true;
-    } else if (heaterpower == 0.0f) {
-        if (curr > CURRENT_FAIL_THRESHOLD && !first_check) {
-            fail = true;
-            write_dev("/dev/relay", "off"); // current not zero while heater's told to be off
+    } else {
+        if (heaterpower > 0.0f) {
+            write_dev("/dev/relay", "on");
         }
+
+        if (heaterpower > HIGH_POWER_THRESHOLD) {
+            if (curr < CURRENT_FAIL_THRESHOLD && !first_check) fail = true;
+        } else if (heaterpower == 0.0f) {
+            if (curr > CURRENT_FAIL_THRESHOLD && !first_check) {
+                fail = true;
+                write_dev("/dev/relay", "off"); // current not zero while heater's told to be off
+            }
+        }
+        write_dev("/dev/alarm/heater", fail ? "on" : "off");
     }
-    write_dev("/dev/alarm/heater", fail ? "on" : "off");
     first_check = false;
 
     write_dev("/dev/alarm/temphigh", skin > TEMPHIGH_C ? "on" : "off");
     write_dev("/dev/alarm/templow",  skin < TEMPLOW_C  ? "on" : "off");
 
+    if (overtemp) return snprintf(out, outlen, "overtemp: relay off\n");
     return snprintf(out, outlen, fail ? "fail\n" : "ok\n");
 }
 
