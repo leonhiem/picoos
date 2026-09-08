@@ -382,3 +382,9 @@ comment for the reasoning): the setpoint-jump-triggers-reboost path.
 - `tft/` — vendored ST7735 driver (blackbox, unmodified copy of the separate `st7735` repo). `dev/tft.cpp` is the only picoos file that includes it.
 
 Known, documented limitations live in the source comments where they're relevant (e.g. `hyst`/`follow`'s single shared state if run twice concurrently, `JOB_POLL_MS`'s one fixed interval for all background jobs) — grep for "not solved" if curious.
+
+## License
+
+MIT — see [LICENSE](LICENSE). This includes the vendored `tft/` driver
+(from the separate [st7735](https://github.com/leonhiem/st7735) repo,
+same author), unless that repo's own license says otherwise.
